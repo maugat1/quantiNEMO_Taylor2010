@@ -1093,10 +1093,7 @@ LCE_Disperse::executeBeforeEachGeneration(const int& gen)
 /******************************************************************************/
 //                             ******** LCE_Migrate ********
 /******************************************************************************/
-LCE_Migrate::LCE_Migrate(int rank) : LCE_Disperse(rank)
-{
-    set_event_name("migrate");
-}
+LCE_Migrate::LCE_Migrate(int rank) : LCE_Disperse(rank) {}
 
 
 
@@ -1105,5 +1102,293 @@ LCE_Migrate::LCE_Migrate(int rank) : LCE_Disperse(rank)
 /******************************************************************************/
 LCE_Colonize::LCE_Colonize(int rank) : LCE_Disperse(rank)
 {
+    // resets and clears the parameter set
     set_event_name("colonize");
+    this->add_parameter("colonization_model",INT2,false,true,0,3,"0");
+    this->add_parameter("colonization_border_model",INT2,false,true,0,2,"0");
+    this->add_parameter("colonization_lattice_range",INT2,false,true,0,1,"0");
+    this->add_parameter("colonization_lattice_dims",MAT, false, false,0,0,"");
+    this->add_parameter("colonization_propagule_prob",DBL,false,true,0,1,"1",true);
+    this->add_parameter("colonization_rate",DBL_MAT,false,false,0,0,"0", true);
+    this->add_parameter("colonization_rate_fem",DBL_MAT,false,false,0,0,"0",true);
+    this->add_parameter("colonization_rate_mal",DBL_MAT,false,false,0,0,"0",true);
+
+    this->add_parameter("colonization_k_threshold",DBL,false,true,0,1,"0");
+
+    this->add_parameter("colonization_k_min",DBL,false,false,0,0,"0");
+    this->add_parameter("colonization_k_max",DBL,false,false,0,0,"1");
+    this->add_parameter("colonization_k_max_growth",DBL,false,false,0,0,"-1");
+    this->add_parameter("colonization_k_growth_rate",DBL,false,false,0,0,"1e4");
+    this->add_parameter("colonization_k_symmetry",DBL,false,false,0,0,"1");
+}
+
+bool LCE_Colonize::init (Metapop* popPtr)
+{
+    LCE::init(popPtr);
+
+    // if only one patch is used there is simply no colonization
+    _nb_patch = popPtr->getPatchNbr();
+    if(_nb_patch == 1){
+        // MALCOLM TODO: make colonize_zeroColonization
+        doMigration = &LCE_Disperse::migrate_zeroMigration;
+        return true;
+    }
+
+    // get parameters
+    _disp_model           = (int)_paramSet->getValue("colonization_model");
+    _disp_propagule_prob  = _paramSet->getValue("colonization_propagule_prob");
+    _border_model         = (int)_paramSet->getValue("colonization_border_model");
+    _lattice_range        = (int)_paramSet->getValue("colonization_lattice_range");
+
+    //reset matrixes
+    if(_dispMatrix[FEM]) {delete _dispMatrix[FEM]; _dispMatrix[FEM]=NULL;}
+    if(_dispMatrix[MAL]) {delete _dispMatrix[MAL]; _dispMatrix[MAL]=NULL;}
+
+
+    // dispersal is set by matrixes
+    if((   _paramSet->isSet("colonization_rate")
+                || _paramSet->isSet("colonization_rate_fem")
+                || _paramSet->isSet("colonization_rate_mal"))
+            && (   _paramSet->isMatrix("colonization_rate")
+                || _paramSet->isMatrix("colonization_rate_fem")
+                || _paramSet->isMatrix("colonization_rate_mal"))){
+        setDispersalMatrix();
+    }
+
+    // dispersal is set by a single dispersal rate (or default)
+    else {
+        if(_disp_model == 3) _get_lattice_dims();     // if it is a 2D stepping stone model
+        setDispersalRate();
+    }
+
+    _setDispersalFactor();
+
+    return true;
+}
+
+void LCE_Colonize::_setDispersalFactor()
+{
+    if(_disp_factor) {delete[] _disp_factor; _disp_factor=NULL;}
+
+    // get the values
+    _disp_factor = new double[5];
+    _disp_factor[0] = _paramSet->getValue("colonization_k_min");
+    _disp_factor[1] = _paramSet->getValue("colonization_k_max");
+    _disp_factor[2] = _paramSet->getValue("colonization_k_max_growth");
+    _disp_factor[3] = _paramSet->getValue("colonization_k_growth_rate");
+    _disp_factor[4] = _paramSet->getValue("colonization_k_symmetry");
+    if(!_disp_factor) fatal("Parameter 'colonization_k_symmetry' cannot be zero!\n");
+
+    // if the growth rate is too large/small, the logsitic function has a size problem (exp)
+    // -> change to threshold function
+    if(abs(_disp_factor[3]) >= STRING::str2int<double>(_paramSet->get_param("colonization_k_growth_rate")->get_default_arg())){
+        if(_disp_factor[3]<0){    // swap min and max if slope is negative
+            double temp     = _disp_factor[0];
+            _disp_factor[0] = _disp_factor[1];
+            _disp_factor[1] = temp;
+        }
+
+        if(_disp_factor[2]<0){ // where is the threshold?
+            if(abs(_disp_factor[1]-1)<1e-6){
+                get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_one;
+                return;
+            }
+            else{
+                get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_max;
+                return;
+            }
+        }
+
+        get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_k_threshold;
+        return;
+    }
+
+    // test if there is a change between 0 and 10 (populations may exceed K...)
+    double ten  = generalLogisticCurve(10,_disp_factor[0],_disp_factor[1],_disp_factor[2],_disp_factor[3],_disp_factor[4]);
+    double zero = generalLogisticCurve(0, _disp_factor[0],_disp_factor[1],_disp_factor[2],_disp_factor[3],_disp_factor[4]);
+    if(abs(ten-zero)<1e-6){                  // factor not influenced by pop density
+        if(abs(ten-1)<1e-6){                   // factor = 1
+            get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_one;
+            return;
+        }
+        if(abs(ten-_disp_factor[0])<1e-6){     // factor = min
+            get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_min;
+            return;
+        }
+        if(abs(ten-_disp_factor[1])<1e-6){     // factor = max
+            get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_max;
+            return;
+        }
+    }
+
+    // use the full general logistic function
+    get_migr_factor_funcPtr = &LCE_Colonize::get_migr_factor_k_logistic;
+}
+
+void LCE_Colonize::_get_lattice_dims()
+{
+    if(_paramSet->isSet("colonization_lattice_dims")){
+        TMatrix* m =  _paramSet->getMatrix("colonization_lattice_dims");
+
+        // check if the dimensions of teh matrix are correct
+        if(m->get_dims(NULL) != 2) fatal("The parameter colonization_lattice_dims should have a matrix with two values!\n");
+
+        // get the dimension of the lattice
+        _lattice_dims[0] = (unsigned int)m->get(0,0);
+        _lattice_dims[1] = (unsigned int)m->get(0,1);
+        if(_lattice_dims[0]*_lattice_dims[1] != _nb_patch){
+            fatal("Parameter colonization_lattice_dims: The dimension of the lattice (%ix%i) does not mach the number of patches (%i)!\n",
+                    _lattice_dims[0], _lattice_dims[1], _nb_patch);
+        }
+    }
+    else{ // if the dimensions are not set, we assume that x=y
+        _lattice_dims[0] = _lattice_dims[1] = (unsigned int) sqrt((double)_nb_patch);
+
+        if(_lattice_dims[0]*_lattice_dims[1] !=  _nb_patch){
+            fatal("Parameter colonization_lattice_dims: The dimension of the lattice (%ix%i) does not mach the number of patches (%i)!\n",
+                    _lattice_dims[0], _lattice_dims[1], _nb_patch);
+        }
+    }
+
+    // check if it is realy a 2D and not a 1D lattice
+    if(_lattice_dims[0] == 1 || _lattice_dims[1]==1){
+        _disp_model = 2;            // use a 1D stepping stone model
+    }
+}
+
+void LCE_Colonize::setDispersalMatrix()
+{
+    if(_paramSet->isSet("colonization_rate_fem")){
+        if(_paramSet->isSet("colonization_rate_fem") && _paramSet->isSet("colonization_rate_mal")){
+            setDispMatrix(FEM, _paramSet->getMatrix("colonization_rate_fem"));
+            setDispMatrix(MAL, _paramSet->getMatrix("colonization_rate_mal"));
+        }
+        else fatal("Only one sex specific migration matrix is specified: both are required!\n");
+    }
+
+    // general dispersal matrix
+    else setDispMatrix(_paramSet->getMatrix("colonization_rate"));
+
+    // function pointer to the migration function
+    doMigration = &LCE_Disperse::migrate_matrix;
+}
+
+void LCE_Colonize::setDispersalRate()
+{
+    if(_paramSet->isSet("colonization_rate_fem")){
+        if(_paramSet->isSet("colonization_rate_fem") && _paramSet->isSet("colonization_rate_mal")){
+            _migr_rate[FEM] = _paramSet->getValue("colonization_rate_fem");
+            _migr_rate[MAL] = _paramSet->getValue("colonization_rate_mal");
+        }
+        else fatal("Only one sex specific migration rate is specified: both are required!\n");
+    }
+
+    // general dispersal rate
+    else _migr_rate[FEM] = _migr_rate[MAL] = _paramSet->getValue("colonization_rate");
+
+    // if there is no migration
+    if(!_migr_rate[MAL] && !_migr_rate[FEM]){
+        doMigration = &LCE_Disperse::migrate_zeroMigration;
+        return;
+    }
+
+    switch (_disp_model){
+        case 0: // island migration model
+            _migr_rate[FEM] /= _nb_patch-1;
+            _migr_rate[MAL] /= _nb_patch-1;
+            doMigration = &LCE_Disperse::migrate_island;
+            break;
+
+        case 1: // island migration model with propagule pool
+            // if there are only two populations use the island simple model
+            if(_nb_patch == 2){
+                _disp_model = 0;
+                warning("With only 2 populations it is not possible to run a propagule dispersal model: the island model is used!\n");
+                return setDispersalRate();
+            }
+            _migr_rate_propagule[FEM] = _migr_rate[FEM]*_disp_propagule_prob;
+            _migr_rate_propagule[MAL] = _migr_rate[MAL]*_disp_propagule_prob;
+            _migr_rate[FEM] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
+            _migr_rate[MAL] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
+            doMigration = &LCE_Disperse::migrate_island_propagule;
+            break;
+
+        case 2: // 1D steppings stone model
+            int factorIn, factorOut;
+            doMigration = &LCE_Disperse::migrate_1D_stepping_stone;
+
+            // edge effect
+            switch(_border_model){
+                default:
+                case 0: // circle
+                    factorIn = 2;   factorOut = 2;
+                    break;
+                case 1: // reflecting
+                    factorIn = 1;   factorOut = 0;
+                    break;
+                case 2: // absorbing
+                    factorIn = 2;   factorOut = -2;  // negative number means removing individuals
+                    break;
+            }
+
+            _migr_rateIn[FEM]     = _migr_rate[FEM]/factorIn;
+            _migr_rateIn[MAL]     = _migr_rate[MAL]/factorIn;
+            _migr_rateOut[FEM]    = factorOut ? _migr_rate[FEM]/factorOut : 0;
+            _migr_rateOut[MAL]    = factorOut ? _migr_rate[MAL]/factorOut : 0;
+            _migr_rate[FEM]      /= 2;
+            _migr_rate[MAL]      /= 2;
+            break;
+
+        case 3: // 2D stepping stone
+            int factorIn4, factorOut4, factorInCorner4;
+            int factorIn8, factorOut8, factorInCorner8;
+
+            // edge effect
+            switch(_border_model){
+                default:
+                case 0: // torus
+                    factorIn4  = 4;      factorIn8  = 8;
+                    factorOut4 = 4;      factorOut8 = 8;
+                    factorInCorner4 = 4; factorInCorner8 = 8;
+                    break;
+                case 1: // reflecting
+                    factorIn4  = 3;      factorIn8  = 5;
+                    factorOut4 = 0;      factorOut8 = 0;
+                    factorInCorner4 = 2; factorInCorner8 = 3;
+                    break;
+                case 2: // absorbing
+                    factorIn4  = 4;      factorIn8  = 8;
+                    factorOut4 = -4;     factorOut8 = -8;    // negative number means removing individuals
+                    factorInCorner4 = 4; factorInCorner8 = 8;
+                    break;
+            }
+
+            // number of neighbours
+            if(_lattice_range==0){         // 4 neighbours
+                doMigration = &LCE_Disperse::migrate_2D_stepping_stone_4Neighbour;
+                _migr_rateIn[FEM]     = _migr_rate[FEM]/factorIn4;
+                _migr_rateIn[MAL]     = _migr_rate[MAL]/factorIn4;
+                _migr_rateOut[FEM]    = factorOut4 ? _migr_rate[FEM]/factorOut4 : 0;
+                _migr_rateOut[MAL]    = factorOut4 ? _migr_rate[MAL]/factorOut4 : 0;
+                _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner4;
+                _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner4;
+                _migr_rate[FEM]      /= 4;
+                _migr_rate[MAL]      /= 4;
+            }
+            else{                          // 8 neighbours
+                doMigration = &LCE_Disperse::migrate_2D_stepping_stone_8Neighbour;
+                _migr_rateIn[FEM]     = _migr_rate[FEM]/factorIn8;
+                _migr_rateIn[MAL]     = _migr_rate[MAL]/factorIn8;
+                _migr_rateOut[FEM]    = factorOut8 ? _migr_rate[FEM]/factorOut8 : 0;
+                _migr_rateOut[MAL]    = factorOut8 ? _migr_rate[MAL]/factorOut8 : 0;
+                _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner8;
+                _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner8;
+                _migr_rate[FEM]      /= 8;
+                _migr_rate[MAL]      /= 8;
+            }
+
+            break;
+
+        default: fatal("\nDispersal model '%i' not available!\n",_disp_model);
+    }
 }

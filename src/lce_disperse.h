@@ -179,6 +179,25 @@ class LCE_Colonize: public LCE_Disperse
 {
     public:
         LCE_Colonize(int rank = my_NAN);
+        virtual bool init(Metapop* popPtr);
+    protected:
+        void _setDispersalFactor();
+        void _get_lattice_dims();
+        double (LCE_Colonize::* get_migr_factor_funcPtr)(Patch* p);
+        double get_migr_factor_one(Patch* p){return 1;}
+        double get_migr_factor_min(Patch* p){return _disp_factor[0];}
+        double get_migr_factor_max(Patch* p){return _disp_factor[1];}
+        double get_migr_factor_k_threshold(Patch* p){
+            return p->get_density(OFFSPRG)<_disp_factor[2] ? _disp_factor[0] : _disp_factor[1];
+        }
+        double get_migr_factor_k_logistic(Patch* p){
+            return generalLogisticCurve(p->get_density(OFFSPRG), _disp_factor[0],
+                    _disp_factor[1], _disp_factor[2],
+                    _disp_factor[3], _disp_factor[4]);
+        }
+    public:
+        void setDispersalMatrix  ( );
+        void setDispersalRate    ( );
 };
 
 

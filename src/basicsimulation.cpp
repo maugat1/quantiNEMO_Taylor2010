@@ -658,7 +658,6 @@ SimBuilder::checkLCEconsistency(){
       // check if the required age class is available or if no age classes are needed
       if(!(availableAge & curLCE->requiredAgeClass())){
         string name = curLCE->get_event_name();
-        // MALCOLM NOTE TODO: HERE, dispersal -> dispersal messes it up
         fatal("LCE order does not make sense (%s -> %s)\n",
             lastLCE->get_event_name().c_str(), curLCE->get_event_name().c_str());
       }
