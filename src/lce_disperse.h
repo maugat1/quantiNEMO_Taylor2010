@@ -166,5 +166,21 @@ public:
 };
 
 
+/**Dispersal child class for migration LCEs.**/
+class LCE_Migrate: public LCE_Disperse
+{
+    public:
+        LCE_Migrate(int rank = my_NAN);
+};
+
+
+/**Dispersal child class for colonization LCEs.**/
+class LCE_Colonize: public LCE_Disperse
+{
+    public:
+        LCE_Colonize(int rank = my_NAN);
+};
+
+
 #endif //LCEDISPERSE_H
 
