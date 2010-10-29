@@ -180,6 +180,9 @@ class LCE_Colonize: public LCE_Disperse
     public:
         LCE_Colonize(int rank = my_NAN);
         virtual bool init(Metapop* popPtr);
+        virtual age_t removeAgeClass ( ) {return OFFSPRG;}
+        virtual age_t addAgeClass ( ) {return ADULTS;}
+        virtual age_t requiredAgeClass () {return OFFSPRG;}
     protected:
         void _setDispersalFactor();
         void _get_lattice_dims();
