@@ -40,8 +40,7 @@
 
 class LCE;
 class LCE_Breed;
-class LCE_Migrate;
-class LCE_Colonize;
+class LCE_Disperse;
 
 //CLASS METAPOP
 
@@ -86,11 +85,8 @@ private:
 	/** pointer to the breed LCE */
 	LCE_Breed* _pBreed_LCE;
 
-	/** pointer to the migrate LCE */
-	LCE_Migrate* _pMigrate_LCE;
-
-	/** pointer to the colonize LCE */
-	LCE_Colonize* _pColonize_LCE;
+	/** pointer to the disperse LCE */
+	LCE_Disperse* _pDisperse_LCE;
 
   Patch** _sample_pops;           // array with pointer to patches used for stats and other outputs (do not delete the patches here)
   unsigned int _sample_pops_size; // size of the array
@@ -152,7 +148,6 @@ private:
 
 	unsigned int  _total_carrying_capacity;
 
-        // MALCOLM: duplicate for migration and colonization
 	double** _density_threshold;					// allows to change the disp rate depending on the density (0: patch, 1: density, 2: change)
 	Param**  _density_threshold_param;    // pointer to the param
 	unsigned int _density_threshold_nbChanges;
@@ -239,8 +234,7 @@ public:
 	void setPopulation ();
 	void setPopulation_FSTAT ();  // if genotypes are given by FSTAT  file
 
-	void set_pMigrate_LCE     (LCE_Migrate* l)  {_pMigrate_LCE = l;}
-	void set_pColonize_LCE    (LCE_Colonize* l) {_pColonize_LCE = l;}
+	void set_pDisperse_LCE     (LCE_Disperse* l)  {_pDisperse_LCE = l;}
 	void set_pBreed_LCE       (LCE_Breed* l)    {_pBreed_LCE = l;}
 
 	///@}
@@ -279,8 +273,7 @@ public:
   clock_t  getMeanReplElapsedTime    ( ) {return _meanReplElapsedTime;}
   /**Returns the mean number of generations performed per replicate.*/
 	unsigned int getMeanGenLength      ( ) {return _meanGenLength;}
-	LCE_Migrate* get_pMigrate_LCE    ( ) {return _pMigrate_LCE;}
-	LCE_Colonize* get_pColonize_LCE    ( ) {return _pColonize_LCE;}
+	LCE_Disperse* get_pDisperse_LCE    ( ) {return _pDisperse_LCE;}
 	LCE_Breed*    get_pBreed_LCE       ( ) {return _pBreed_LCE;}
   double      get_sexInitRatio       ( ) {return _sexInitRatio;}
 

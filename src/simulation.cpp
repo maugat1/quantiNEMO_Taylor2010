@@ -248,23 +248,23 @@ void SimRunner::print_info(){
 	// life cycle events
 	message("\n  Life cycle sequence:");
 	map< int, LCE* >::iterator  iterLCE = this->_currentLifeCycle.begin();
-	LCE_Migrate* pLCE;
+	LCE_Disperse* pLCE;
 	for(int i=1; iterLCE != this->_currentLifeCycle.end(); ++iterLCE, ++i) {
 		message("\n    %i. %s", i, iterLCE->second->get_event_name().c_str());
 
 		// find the migrate LCE
-		pLCE = dynamic_cast<LCE_Migrate*>(iterLCE->second);
+		pLCE = dynamic_cast<LCE_Disperse*>(iterLCE->second);
 		if(pLCE){
-			_thePop->set_pMigrate_LCE(pLCE);
+			_thePop->set_pDisperse_LCE(pLCE);
 		}
 	}
-	assert(_thePop->get_pMigrate_LCE());       // the migrate LCE must be present!
+	assert(_thePop->get_pDisperse_LCE());       // the disperse LCE must be present!
 	message("\n");
 
 	// metapopulation
 	message("\n  Metapopulation:");
 	message("\n    %i populations", _thePop->getPatchNbr());
-	message("\n    Migration model: %s", _thePop->get_pMigrate_LCE()->get_disp_model_str().c_str());
+	message("\n    Migration model: %s", _thePop->get_pDisperse_LCE()->get_disp_model_str().c_str());
 	message("\n    Mating system: %s", _thePop->get_pBreed_LCE()->getMatingSystem_str().c_str());
 
   // genetic map
@@ -648,8 +648,7 @@ void SimRunner::loadDefaultTemplates(map<string, vector<string> >& inputParams)
   add_LCE_template(new LCE_FileServicesNotifier(3));
   add_LCE_template(new LCE_Aging(4));
 	add_LCE_template(new LCE_Regulation(OFFSx, 5));
-	add_LCE_template(new LCE_Migrate(6));
-	add_LCE_template(new LCE_Colonize(9));
+	add_LCE_template(new LCE_Disperse(6));
 	add_LCE_template(new LCE_Regulation(ADLTx, 7));
 	add_LCE_template(new LCE_Patch_Extinction(8));
 
@@ -703,8 +702,7 @@ void SimRunner::loadDefaultTemplates(map<string, string>& inputParams)
   add_LCE_template(new LCE_FileServicesNotifier(3));
   add_LCE_template(new LCE_Aging(4));
 	add_LCE_template(new LCE_Regulation(OFFSx, 5));
-	add_LCE_template(new LCE_Migrate(6));
-	add_LCE_template(new LCE_Colonize(9));
+	add_LCE_template(new LCE_Disperse(6));
 	add_LCE_template(new LCE_Regulation(ADLTx, 7));
 	add_LCE_template(new LCE_Patch_Extinction(8));
 
