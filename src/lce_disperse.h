@@ -87,18 +87,34 @@ class LCE_Disperse: public LCE
 
         /** factor to the migration rate */
         void _setDispersalFactor(bool coln=false);
-        double (LCE_Disperse::* get_migr_factor_funcPtr)(Patch* p);
-        double get_migr_factor_one(Patch* p){return 1;}
-        double get_migr_factor_min(Patch* p){return _disp_factor[0];}
-        double get_migr_factor_max(Patch* p){return _disp_factor[1];}
-        double get_migr_factor_k_threshold(Patch* p){
-            return p->get_density(OFFSPRG)<_disp_factor[2] ?
-                _disp_factor[0] : _disp_factor[1];
+        double (LCE_Disperse::* get_disp_factor_funcPtr)(Patch* p, bool coln);
+        double (LCE_Disperse::* get_coln_factor_funcPtr)(Patch* p, bool coln);
+        double get_disp_factor_one(Patch* p, bool coln=false) {return 1;}
+        double get_disp_factor_min(Patch* p, bool coln=false) {
+            return (coln ? _coln_factor[0] : _disp_factor[0]);
         }
-        double get_migr_factor_k_logistic(Patch* p){
-            return generalLogisticCurve(p->get_density(OFFSPRG),
-                    _disp_factor[0], _disp_factor[1], _disp_factor[2],
-                    _disp_factor[3], _disp_factor[4]);
+        double get_disp_factor_max(Patch* p, bool coln=false) {
+            return (coln ? _coln_factor[1] : _disp_factor[1]);
+        }
+        double get_disp_factor_k_threshold(Patch* p, bool coln=false) {
+            if( coln ) {
+                return p->get_density(OFFSPRG)<_coln_factor[2] ?
+                    _coln_factor[0] : _coln_factor[1];
+            } else {
+                return p->get_density(OFFSPRG)<_disp_factor[2] ?
+                    _disp_factor[0] : _disp_factor[1];
+            }
+        }
+        double get_disp_factor_k_logistic(Patch* p, bool coln=false) {
+            if( coln ) {
+                return generalLogisticCurve(p->get_density(OFFSPRG),
+                        _coln_factor[0], _coln_factor[1], _coln_factor[2],
+                        _coln_factor[3], _coln_factor[4]);
+            } else {
+                return generalLogisticCurve(p->get_density(OFFSPRG),
+                        _disp_factor[0], _disp_factor[1], _disp_factor[2],
+                        _disp_factor[3], _disp_factor[4]);
+            }
         }
 
 
@@ -146,8 +162,10 @@ class LCE_Disperse: public LCE
 
 
     public:
-        /***** Migration *****/
+        // dispersal function pointer
         void (LCE_Disperse::* doDispersal) (bool coln);
+        // colonization function pointer, NULL if coln the same as migration
+        void (LCE_Disperse::* doColonization) (bool coln);
 
         ///@name Dispersal Matrix
         ///@{
