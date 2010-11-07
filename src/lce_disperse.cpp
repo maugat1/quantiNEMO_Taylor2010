@@ -450,7 +450,7 @@ void LCE_Disperse::disperse_island_propagule(bool coln)
 {
     Patch *current_patch;
     int nbInd[2];
-    unsigned int home, target, propagule, nb_extinct;
+    unsigned int home, target, propagule;
     double factor;
 
     // for each patch

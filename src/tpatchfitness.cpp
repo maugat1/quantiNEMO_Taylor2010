@@ -241,7 +241,7 @@ TPatchFitness::remove(unsigned int i){
 	// remove the individual
 	if(_sort == 10){	// fitness array is not cumulative
 		++i;
-		for(i; i<_nbInd; ++i){
+		for(; i<_nbInd; ++i){
 			_aFit[i-1] = _aFit[i];
 			_aInd[i-1] = _aInd[i];
 		}
@@ -249,7 +249,7 @@ TPatchFitness::remove(unsigned int i){
 	else {          	// fitness array is cumulative
 		double diff = i ? _aFit[i]-_aFit[i-1] : _aFit[0];	// get the fitness of the individual
 		++i;
-		for(i; i<_nbInd; ++i){
+		for(; i<_nbInd; ++i){
 			_aFit[i-1] = _aFit[i]-diff;
 			_aInd[i-1] = _aInd[i];
 		}

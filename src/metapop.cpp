@@ -1382,7 +1382,7 @@ Metapop::setPopulation_FSTAT()
 	age_idx age;
   unsigned int t;
   int p, l;
-  Patch* pPatch;
+  Patch* pPatch=NULL;
   unsigned char** seq;                           // pointer to the sequence
   for(unsigned int i=0; i<nbInd; ++i){           // for each individual
     aQuanti = vQuanti ? (*vQuanti)[i] : NULL;    // get individual array of quanti

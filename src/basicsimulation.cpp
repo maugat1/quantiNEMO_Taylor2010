@@ -640,7 +640,7 @@ SimBuilder::checkLCEconsistency(){
   }
 
   // check if the LCE makes sense
-  LCE* curLCE, *lastLCE;
+  LCE *curLCE=NULL, *lastLCE=NULL;
   bool stop = false;
   iterLCE = _currentLifeCycle.begin(); // start with the first LCE
   while(!stop){

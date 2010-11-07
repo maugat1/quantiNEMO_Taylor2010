@@ -311,8 +311,10 @@ bool LCE_Patch_Extinction::init (Metapop* popPtr)
 bool LCE_Regulation::init(Metapop* popPtr){
   LCE::init(popPtr);
 
-  if(( _age == OFFSx && _popPtr->get_selection_position() == 2)     // does selection acts at this stage?
-    || _age == ADLTx && _popPtr->get_selection_position() == 3){
+    // does selection acts at this stage?
+  if( ( _age == OFFSx && _popPtr->get_selection_position() == 2) || 
+  (_age == ADLTx && _popPtr->get_selection_position() == 3) )
+    {
 
 		switch(_popPtr->get_selection_level()){
 			case 0: regulation = &LCE_Regulation::regulation_fitness_patch;    break;   // patch level

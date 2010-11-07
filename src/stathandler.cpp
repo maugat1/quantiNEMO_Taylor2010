@@ -1170,7 +1170,7 @@ double StatHandler<SH>::getHt_ofLocus (const age_t& AGE, const unsigned int& l)
 	set_alleleCountTable_global(AGE);
 
   double hs = 1, mean_freq;
-  unsigned int a, p;
+  unsigned int a;
 	for(a = 0; a < _nb_allele; ++a) {
 		mean_freq = _globalAlleleFreq[l][a];
 		hs  -= mean_freq*mean_freq;
@@ -1642,7 +1642,7 @@ void StatHandler<SH>::setSexspecific_Theta(const age_t& AGE)
 
   unsigned int Fsize,Msize,i,j,k, FFsize, MMsize, FMsize;
   Patch *P1;
-  double mean, grand_mean;
+  double mean=0, grand_mean;
   age_idx age_pos = (AGE == ADULTS ? ADLTx : OFFSx);
 
   Theta_FF = 0;

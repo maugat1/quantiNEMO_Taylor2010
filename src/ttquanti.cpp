@@ -1212,7 +1212,7 @@ TTQuantiProto::read_genome_file(string filename)
 	// read the file
   TMatrix mat;
   map<string, int> fileInfo;
-  int i, l, nbValues=0;
+  int i, nbValues=0;
 
   // read the file
   fileInfo = mat.read_matrix(filename);
@@ -1647,7 +1647,7 @@ TTQuantiProto::print_gentoype(ostream& FILE, unsigned char** seq, const int& dig
 bool
 TTQuantiProto::get_next_gentoype(unsigned char** seq)
 {
-	int l, p, a;
+	int l;
 
 	for(l=_nb_locus-1; l>=0; --l){
 			// increment the last allele and check if it is valable

@@ -286,10 +286,12 @@ SimRunner::readInputFile( int ARGC, char **ARGV ){
 	FileParser Reader;
   map< string, vector<string> >* pParams;
 
+  char default_file[15]="quantiNemo.ini";
+
   // check if the name of the settings file is passed
   if (ARGC == 1){  // if no argument is passed use the default file name
     // is there a default settings file?
-    ARGV[1] = "quantiNemo.ini";
+    ARGV[1] = default_file;
 		ifstream FILE(((string)ARGV[0]+ARGV[1]).c_str());
     if(!FILE){    // no default settings file
       message("\nPlease enter the settings file name: ");

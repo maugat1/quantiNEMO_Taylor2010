@@ -531,7 +531,7 @@ bool ParamSet::check_consistency ()
   map<string, Param*>::iterator param = _params.begin();
   bool isOK = true;
   // bool touched = false;
-  bool firstOK;
+  bool firstOK = true;
 
   for(int i=0; param != _params.end(); ++param, ++i) {
     //check if all required fields have been set properly
