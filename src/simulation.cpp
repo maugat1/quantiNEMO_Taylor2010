@@ -252,7 +252,7 @@ void SimRunner::print_info(){
 	for(int i=1; iterLCE != this->_currentLifeCycle.end(); ++iterLCE, ++i) {
 		message("\n    %i. %s", i, iterLCE->second->get_event_name().c_str());
 
-		// find the migrate LCE
+		// find the disperse LCE
 		pLCE = dynamic_cast<LCE_Disperse*>(iterLCE->second);
 		if(pLCE){
 			_thePop->set_pDisperse_LCE(pLCE);
@@ -265,6 +265,9 @@ void SimRunner::print_info(){
 	message("\n  Metapopulation:");
 	message("\n    %i populations", _thePop->getPatchNbr());
 	message("\n    Migration model: %s", _thePop->get_pDisperse_LCE()->get_disp_model_str().c_str());
+        if( _thePop->get_pDisperse_LCE()->doColonization ) {
+            message("\n    Colonization model: %s", _thePop->get_pDisperse_LCE()->get_disp_model_str(true).c_str());
+        }
 	message("\n    Mating system: %s", _thePop->get_pBreed_LCE()->getMatingSystem_str().c_str());
 
   // genetic map

@@ -176,20 +176,36 @@ class LCE_Disperse: public LCE
         void setDispMatrix(sex_t sex, TMatrix* mat, bool coln=false);
         ///@}
 
-        int  get_disp_model(bool coln=false)  {return _disp_model;}
+        int  get_disp_model(bool coln=false) {
+            return coln ? _coln_model : _disp_model;
+        }
         string get_disp_model_str(bool coln=false)
         {
-            if(doDispersal == &LCE_Disperse::disperse_zeroDispersal)
-                return "no migration";
-            if(doDispersal == &LCE_Disperse::dispersal_matrix)
-                return "matrix";
-            switch(_disp_model){
-                case 0: return "island";
-                case 1: return "propagule island";
-                case 2: return "1D stepping stone";
-                case 3: return "2D stepping stone";
+            if( !coln ) {
+                if(doDispersal == &LCE_Disperse::disperse_zeroDispersal)
+                    return "no migration";
+                if(doDispersal == &LCE_Disperse::dispersal_matrix)
+                    return "matrix";
+                switch(_disp_model){
+                    case 0: return "island";
+                    case 1: return "propagule island";
+                    case 2: return "1D stepping stone";
+                    case 3: return "2D stepping stone";
+                }
+                return"";
+            } else {
+                if(doColonization == &LCE_Disperse::disperse_zeroDispersal)
+                    return "no colonization";
+                if(doColonization == &LCE_Disperse::dispersal_matrix)
+                    return "matrix";
+                switch(_coln_model){
+                    case 0: return "island";
+                    case 1: return "propagule island";
+                    case 2: return "1D stepping stone";
+                    case 3: return "2D stepping stone";
+                }
+                return"";
             }
-            return"";
         }
 
         virtual void disperse_zeroDispersal(bool coln=false);
