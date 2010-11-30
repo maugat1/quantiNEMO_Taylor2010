@@ -218,7 +218,6 @@ void LCE_Disperse::execute() {
     postDispersal();
 
 #ifdef _DEBUG
-    // TODO: modify this
     unsigned int c = 0;
     for(unsigned int i = 0; i < _nb_patch; i++) {
         c += _popPtr->getPatch(i)->nbEmigrant;

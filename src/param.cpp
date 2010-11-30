@@ -495,20 +495,9 @@ ParamSet::updateTemporalParams(const int& gen){
 /** returns a pointer to the param if found and an error if not found */
 Param* ParamSet::get_param (string Name)
 {
-    // MALCOLM: delete this later
-    message("\n***");
-    message(_name.c_str());
-    message("***\n");
-    map<string, Param*>::iterator p = _params.begin();
-    for(; p != _params.end(); p++)
-    {
-        message(string(p->first).c_str());
-        message("\n");
-    }
+    map<string, Param*>::iterator param = _params.find(Name);
 
-	map<string, Param*>::iterator param = _params.find(Name);
-
-	if(param == _params.end()) fatal("ParamSet::get_param could not find '%s'!", Name.c_str());
+    if(param == _params.end()) fatal("ParamSet::get_param could not find '%s'!", Name.c_str());
   return param->second;
 }
 
