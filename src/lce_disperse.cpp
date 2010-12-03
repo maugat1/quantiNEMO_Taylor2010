@@ -270,6 +270,8 @@ void LCE_Disperse::postDispersal()
 
         // was the patch extinct?
         if(current_patch->get_isExtinct()) {
+            // set the age since colonization
+            current_patch->colnAge = 0;
             // if the patch is now inhabited we have colonizers
             assert(current_patch->nbImmigrant == current_patch->size(ADLTx));
             if(current_patch->nbImmigrant) {
@@ -278,6 +280,9 @@ void LCE_Disperse::postDispersal()
                 current_patch->nbKolonisers = current_patch->nbImmigrant;
             }
             continue;  // go to the next patch
+        } else {
+            // increment age since colonization for extant patches
+            ++(current_patch->colnAge);
         }
 
         // is the patch now extinct?

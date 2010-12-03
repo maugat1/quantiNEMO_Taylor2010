@@ -113,11 +113,12 @@ class Patch
 
     public:
     //counters:
-    unsigned int nbEmigrant, nbImmigrant, nbPhilopat, nbKolonisers;
+    unsigned int nbEmigrant, nbImmigrant, nbPhilopat, nbKolonisers, colnAge;
 
     //methods:
     Patch() : _ID(0), _ID_individual(0), _K(0), _KFem(0), _KMal(0), _N_ini(0), _NFem_ini(0), _NMal_ini(0),
-    _localSelection(0), _pSelectionType(0), _nbLinkedTraits(0), _isExtinct(0)
+    _localSelection(0), _pSelectionType(0), _nbLinkedTraits(0), _isExtinct(0),
+    colnAge(0)
     {
         _sizes      = ARRAY::new_2D<unsigned int>(2, NB_AGE_CLASSES, (unsigned int)0);
         _capacities = ARRAY::new_2D<unsigned int>(2, NB_AGE_CLASSES, (unsigned int)0);

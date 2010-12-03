@@ -308,6 +308,7 @@ void Patch::reset_counters()
   nbImmigrant = 0;
   nbPhilopat = 0;
   nbKolonisers = 0;
+  colnAge = 0;
 }
 // ----------------------------------------------------------------------------------------
 // setNewGeneration
