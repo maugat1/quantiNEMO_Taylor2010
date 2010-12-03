@@ -7,3 +7,4 @@ Roughly, the major organization of this project is as such:
     /README.txt     This file
     /src/           The (modified) quantiNEMO source code
     /doc/           Documentation for quantiNEMO and other things
+    /results/       The results and output from runs
