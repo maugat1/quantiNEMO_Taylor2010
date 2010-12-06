@@ -1478,27 +1478,27 @@ void StatHandler<SH>::get_sigma_of_locus_Weir_Cockerham(double& sigma_a2,
     }
 }
 
-/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/*/
+/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_*/
 
 //                          ******** coancestries analysis ********
 // ----------------------------------------------------------------------------------------
 // coancestry
 // ----------------------------------------------------------------------------------------
-template <class SH>
+    template <class SH>
 double StatHandler<SH>::Coancestry(void** ind1, void** ind2)
 {
-unsigned int p = 0;
-unsigned char **seq1 = (unsigned char**)ind1;
-unsigned char **seq2 = (unsigned char**)ind2;
+    unsigned int p = 0;
+    unsigned char **seq1 = (unsigned char**)ind1;
+    unsigned char **seq2 = (unsigned char**)ind2;
 
-for (unsigned int k = 0; k < _nb_locus; ++k){
-p += !(seq1[k][0]^seq2[k][0])
-+ !(seq1[k][0]^seq2[k][1])
-+ !(seq1[k][1]^seq2[k][0])
-+ !(seq1[k][1]^seq2[k][1]);
-}
+    for (unsigned int k = 0; k < _nb_locus; ++k){
+        p += !(seq1[k][0]^seq2[k][0])
+            + !(seq1[k][0]^seq2[k][1])
+            + !(seq1[k][1]^seq2[k][0])
+            + !(seq1[k][1]^seq2[k][1]);
+    }
 
-return (double)p/(4.*_nb_locus);
+    return (double)p/(4.*_nb_locus);
 }
 // ----------------------------------------------------------------------------------------
 // setCoaMatrixTheta
@@ -1706,7 +1706,71 @@ void StatHandler<SH>::setSexspecific_Theta(const age_t& AGE)
     Theta_FM    /= _sample_pops_size;
 }
 
-/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/*/
+
+/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_*/
+
+//                          ******** inbreeding analysis ********
+// MALCOLM NOTE TODO: this is just a last minute hack and instead of writing out
+// using the built in quantiNEMO means, just writes it to another CSV-type file.
+// TODO: use quantiNEMO output methods
+// ----------------------------------------------------------------------------------------
+// writeIndInbreeding
+// ----------------------------------------------------------------------------------------
+/** writes the coancestry and fitness to a csv file **/ 
+    template <class SH>
+void StatHandler<SH>::writeIndInbreeding ()
+{
+    // append results to the output file
+    ofstream csv("inbreeding.csv", ios_base::out | ios_base::app);
+
+    unsigned int Fsize, Msize, tot_size, i, j;
+    Patch *cur_patch;
+    double coa, w;
+    Individual *ind, *mother, *father;
+
+    // get the parental coancestry and fitness for each individual
+    for(i = 0; i < _sample_pops_size; ++i) {
+        cur_patch = _sample_pops[i];
+        Fsize = cur_patch->size(FEM, OFFSx);
+        Msize = cur_patch->size(MAL, OFFSx);
+        tot_size = Fsize + Msize;
+        if(tot_size) {
+            // females
+            for(j = 0; j < Fsize-1; ++j) {
+                ind = cur_patch->get(FEM, OFFSx, j);
+                mother = ind->getMother();
+                father = ind->getFather();
+                if( !mother || !father ) continue;
+                coa = Coancestry(
+                        mother->getTrait(_SHLinkedTraitIndex)->get_sequence(),
+                        father->getTrait(_SHLinkedTraitIndex)->get_sequence());
+                w = ind->getFitness();
+                w = mother->getFitness();
+                // write the information to the csv file
+                // TODO: add replicate and generation number
+                csv << i << "," << j << "," << coa << "," << w << endl;
+            }
+            // males
+            for(j = 0; j < Msize-1; ++j) {
+                ind = cur_patch->get(MAL, OFFSx, j);
+                mother = ind->getMother();
+                father = ind->getFather();
+                if( !mother || !father ) continue;
+                coa = Coancestry(
+                        mother->getTrait(_SHLinkedTraitIndex)->get_sequence(),
+                        father->getTrait(_SHLinkedTraitIndex)->get_sequence());
+                w = ind->getFitness();
+                w = father->getFitness();
+                // write the information to the csv file
+                // TODO: add replicate and generation number
+                csv << i << "," << j << "," << coa << "," << w << endl;
+            }
+        }//end if
+    }//end for patchNbr
+}
+
+
+/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_*/
 
 //                          ******** kinship analysis ********
 // ----------------------------------------------------------------------------------------
@@ -1804,7 +1868,7 @@ void StatHandler<SH>::setSibCoa(Individual *I1, Individual *I2)
     }
 }
 
-/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/*/
+/*_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_*/
 
 //                          ******** stat options ********
 // ----------------------------------------------------------------------------------------
@@ -2042,5 +2106,29 @@ bool StatHandler<SH>:: set_stat_all_freq_global(string t, string i, string trait
         }
     }
     else return false;
+    return true;
+}
+
+
+// ----------------------------------------------------------------------------------------
+// set_stat_inbreeding
+// ----------------------------------------------------------------------------------------
+/** inbreeding stat options */
+template <class SH>
+bool StatHandler<SH>:: set_stat_inbreeding(string t, string i, string trait){
+
+    // check the prefix
+    assert(i.length() == 1);
+    if(t[0] != i[0]) return false; // first character
+    if(t.length() < 2 || t[1] != '.') return false; // second character
+    // get the search token
+    t = t.substr(2);
+
+    // TODO: come up with add_perInd() and use that instead
+    // TODO: instead of inbreeding, add coa_parent_i and w_i
+    if(t == "inbr_i") add("Individual inbreeding depression (" + trait + ")", i + ".inbr", FLAT, ALL, 0, &StatHandler<SH>::getIndInbr);
+
+    else return false;
+
     return true;
 }

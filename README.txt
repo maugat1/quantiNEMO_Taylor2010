@@ -8,3 +8,6 @@ Roughly, the major organization of this project is as such:
     /src/           The (modified) quantiNEMO source code
     /doc/           Documentation for quantiNEMO and other things
     /results/       The results and output from runs
+
+TODO:
+    - write code to output individual-level statistics

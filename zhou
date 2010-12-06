@@ -1,0 +1,74 @@
+#!/bin/bash
+
+set -e
+
+# settings
+OUTDIR="zhou_results"
+
+# clear the results
+rm -fr "$OUTDIR"
+
+# run quantiNEMO
+./quantiNemo zhou.ini
+
+# process the phenotype files
+COMMAND="python fstat2csv.py"
+OPTIONS="--types= --patch --no-age --no-sex --mother --father --fitness"
+OUTFILE_PHEN="phenotype.csv"
+FIRST=1
+for PHENFILE in "$OUTDIR"/phenotypes/*.phe; do
+    # get the replication and generation from the file name
+    GENREP=$(echo $(basename "$PHENFILE") | \
+        sed 's/^simulation_\(.*\)\.phe$/\1/')
+    REP=$(echo $GENREP | sed 's/^r\([0-9][0-9]*\)\(g[0-9][0-9]*\)\?$/\1/')
+    if [ "$REP" = "$GENREP" ]; then REP=1; fi
+    REP=$(python -c "print int(\"$REP\")")
+    GEN=$(echo $GENREP | sed 's/^\(r[0-9][0-9]*\)\?g\([0-9][0-9]*\)$/\2/')
+    if [ "$GEN" = "$GENREP" ]; then GEN=1; fi
+    GEN=$(python -c "print int(\"$GEN\")")
+    # write to the CSV file
+    if [ "$FIRST" = 1 ]; then
+        rm -f "$OUTFILE_PHEN"
+        FIRST=0
+        $COMMAND "$PHENFILE" $OPTIONS --extra="replicate:$REP,generation:$GEN" \
+            --header > "$OUTFILE_PHEN" 
+    else
+        $COMMAND "$PHENFILE" $OPTIONS --extra="replicate:$REP,generation:$GEN" \
+            --no-header >> "$OUTFILE_PHEN" 
+    fi
+done
+
+# process the marker files
+COMMAND="python fstat2csv.py"
+OPTIONS="--no-patch --no-age --no-sex --no-mother --no-father --no-fitness"
+OUTFILE_MARK="markers.csv"
+FIRST=1
+for MARKFILE in "$OUTDIR"/markers/*.dat; do
+    # get the replication and generation from the file name
+    GENREP=$(echo $(basename "$MARKFILE") | \
+        sed 's/^simulation_\(.*\)\.dat$/\1/')
+    REP=$(echo $GENREP | sed 's/^r\([0-9][0-9]*\)\(g[0-9][0-9]*\)\?$/\1/')
+    if [ "$REP" = "$GENREP" ]; then REP=1; fi
+    REP=$(python -c "print int(\"$REP\")")
+    GEN=$(echo $GENREP | sed 's/^\(r[0-9][0-9]*\)\?g\([0-9][0-9]*\)$/\2/')
+    if [ "$GEN" = "$GENREP" ]; then GEN=1; fi
+    GEN=$(python -c "print int(\"$GEN\")")
+    # write to the CSV file
+    if [ "$FIRST" = 1 ]; then
+        rm -f "$OUTFILE_MARK"
+        FIRST=0
+        $COMMAND "$MARKFILE" $OPTIONS --extra="replicate:$REP,generation:$GEN" \
+            --header > "$OUTFILE_MARK" 
+    else
+        $COMMAND "$MARKFILE" $OPTIONS --extra="replicate:$REP,generation:$GEN" \
+            --no-header >> "$OUTFILE_MARK" 
+    fi
+done
+
+# join them as the inbreeding file
+COMMAND="python coafitcsv.py"
+OPTIONS=""
+OUTFILE_INBR="inbreeding.csv"
+$COMMAND $OPTIONS $OUTFILE_PHEN $OUTFILE_MARK > $OUTFILE_INBR
+
+exit 0

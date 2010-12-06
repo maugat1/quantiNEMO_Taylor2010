@@ -75,6 +75,7 @@ class StatHandler: public StatHandlerBase {
         bool set_stat_fstat(string t, string i, string trait);
         bool set_stat_all_freq_local(string t, string i, string trait);
         bool set_stat_all_freq_global(string t, string i, string trait);
+        bool set_stat_inbreeding(string t, string i, string trait);
 
 
         ///@}
@@ -132,14 +133,21 @@ class StatHandler: public StatHandlerBase {
         ///@}
 
 
-        //fstat:
-        double _ho, _hs, _ht, _hsnei, _htnei, _nb_all_global,
-        _fst, _fis, _fit;
-double _fst_wc, _fis_wc, _fit_wc;
-double** _fst_matrix_wc, **_fst_matrix;
+        ///@}
+        ///@name Coancestries
+        ///@{
+        double getIndInbr() { writeIndInbreeding(); return 0; };
+        void writeIndInbreeding ();
+        ///@}
 
-double *_hsnei_locus, *_htnei_locus, *_fst_locus, *_fis_locus, *_fit_locus,  // for Nei and Chesser
-       *_ho_locus, *_hs_locus, *_ht_locus;
+
+        //fstat:
+        double _ho, _hs, _ht, _hsnei, _htnei, _nb_all_global, _fst, _fis, _fit;
+        double _fst_wc, _fis_wc, _fit_wc;
+        double** _fst_matrix_wc, **_fst_matrix;
+
+        double *_hsnei_locus, *_htnei_locus, *_fst_locus, *_fis_locus, *_fit_locus,  // for Nei and Chesser
+        *_ho_locus, *_hs_locus, *_ht_locus;
 
 double *_fst_WC_locus, *_fis_WC_locus, *_fit_WC_locus;                       // Weir and Cockerham
 
