@@ -7,6 +7,8 @@ python script to calculate parental coancestry of individuals
 import csv
 import re
 
+import sys
+
 def coancestry(loci1, loci2):
     """
     Arguments:
@@ -38,6 +40,7 @@ locus_p = re.compile(r'(trait-\d\d*)?_?loc(us)?-\d\d*', re.I)
 
 def coa_fit_csv(phenfile, markfile, outfile, header=True):
     """
+    Creates a csv with coancestry and fitness information from 
     """
     csvwriter = csv.writer(outfile)
     phen = csv.reader(phenfile)
@@ -51,9 +54,9 @@ def coa_fit_csv(phenfile, markfile, outfile, header=True):
     phen_patch_col = phen_head.index("patch")
     phen_mom_col = phen_head.index("mother_id")
     phen_dad_col = phen_head.index("father_id")
-    phen_fit_col = phen_head.index('fitness')
+    phen_fit_col = phen_head.index("fitness")
     try:
-        phen_rep_col = phen_head.index('replicate')
+        phen_rep_col = phen_head.index("replicate")
     except IndexError:
         phen_rep_col = None
     # find the marker columns to keep
@@ -67,7 +70,7 @@ def coa_fit_csv(phenfile, markfile, outfile, header=True):
         if locus_p.match(mark_head[i]):
             mark_loc_cols.append(i)
     try:
-        mark_rep_col = mark_head.index('replicate')
+        mark_rep_col = mark_head.index("replicate")
     except IndexError:
         mark_rep_col = None
     # make a parent genotype dictionary from marker file

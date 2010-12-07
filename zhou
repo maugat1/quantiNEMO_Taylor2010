@@ -4,17 +4,20 @@ set -e
 
 # settings
 OUTDIR="zhou_results"
+VERBOSE=1
 
 # clear the results
 rm -fr "$OUTDIR"
 
 # run quantiNEMO
+if [ "$VERBOSE" -gt 0 ]; then echo "<< running quantiNemo >>"; fi
 ./quantiNemo zhou.ini
 
 # process the phenotype files
+if [ "$VERBOSE" -gt 0 ]; then echo "<< processing phenotypes >>"; fi
 COMMAND="python fstat2csv.py"
 OPTIONS="--types= --patch --no-age --no-sex --mother --father --fitness"
-OUTFILE_PHEN="phenotype.csv"
+OUTFILE_PHEN="$OUTDIR/phenotype.csv"
 FIRST=1
 for PHENFILE in "$OUTDIR"/phenotypes/*.phe; do
     # get the replication and generation from the file name
@@ -39,9 +42,10 @@ for PHENFILE in "$OUTDIR"/phenotypes/*.phe; do
 done
 
 # process the marker files
+if [ "$VERBOSE" -gt 0 ]; then echo "<< processing markers >>"; fi
 COMMAND="python fstat2csv.py"
 OPTIONS="--no-patch --no-age --no-sex --no-mother --no-father --no-fitness"
-OUTFILE_MARK="markers.csv"
+OUTFILE_MARK="$OUTDIR/markers.csv"
 FIRST=1
 for MARKFILE in "$OUTDIR"/markers/*.dat; do
     # get the replication and generation from the file name
@@ -66,9 +70,12 @@ for MARKFILE in "$OUTDIR"/markers/*.dat; do
 done
 
 # join them as the inbreeding file
+if [ "$VERBOSE" -gt 0 ]; then echo "<< calculating coa and fit >>"; fi
 COMMAND="python coafitcsv.py"
 OPTIONS=""
-OUTFILE_INBR="inbreeding.csv"
-$COMMAND $OPTIONS $OUTFILE_PHEN $OUTFILE_MARK > $OUTFILE_INBR
+OUTFILE_INBR="$OUTDIR/inbreeding.csv"
+$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
+
+if [ "$VERBOSE" -gt 0 ]; then echo "<< done >>"; fi
 
 exit 0
