@@ -70,11 +70,12 @@ for MARKFILE in "$OUTDIR"/markers/*.dat; do
 done
 
 # join them as the inbreeding file
+# TODO: rewrite this using database so it works
 if [ "$VERBOSE" -gt 0 ]; then echo "<< calculating coa and fit >>"; fi
 COMMAND="python coafitcsv.py"
 OPTIONS=""
 OUTFILE_INBR="$OUTDIR/inbreeding.csv"
-$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
+#$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
 
 if [ "$VERBOSE" -gt 0 ]; then echo "<< done >>"; fi
 
