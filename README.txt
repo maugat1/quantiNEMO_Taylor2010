@@ -12,3 +12,4 @@ Roughly, the major organization of this project is as such:
 
 TODO:
     - Fix colonization code
+    - Allow extinction to use temporal parameters

@@ -70,12 +70,37 @@ for MARKFILE in "$OUTDIR"/markers/*.dat; do
 done
 
 # join them as the inbreeding file
-# TODO: rewrite this using database so it works
+# TODO: rewrite this using database so it works with larger data
 if [ "$VERBOSE" -gt 0 ]; then echo "<< calculating coa and fit >>"; fi
 COMMAND="python coafitcsv.py"
 OPTIONS=""
 OUTFILE_INBR="$OUTDIR/inbreeding.csv"
-#$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
+$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
+
+# process the patch statistics
+STATFILE="$OUTDIR/simulation_stats.txt"
+if [ -e "$STATFILE" ]; then
+    # convert txt to CSV
+    if [ "$VERBOSE" -gt 0 ]; then echo "<< converting stat file >>"; fi
+    COMMAND="python txt2csv.py"
+    OPTIONS=""
+    OUTFILE_CONV="$OUTDIR/simulation_stats.csv"
+    $COMMAND $OPTIONS "$STATFILE" "$OUTFILE_CONV"
+
+    # process the new CSV file
+    if [ "$VERBOSE" -gt 0 ]; then echo "<< processing stat file >>"; fi
+    COMMAND="python statcsv.py"
+    OPTIONS=""
+    OUTFILE_STAT="$OUTDIR/patch_stats.csv"
+    $COMMAND $OPTIONS "$OUTFILE_CONV" "$OUTFILE_STAT"
+
+    # join together the patch age and individual data
+    if [ "$VERBOSE" -gt 0 ]; then echo "<< joining colony age >>"; fi
+    COMMAND="python joincolnage.py"
+    OPTIONS=""
+    OUTFILE_JOIN="$OUTDIR/stats.csv"
+    $COMMAND $OPTIONS "$OUTFILE_INBR" "$OUTFILE_STAT" > "$OUTFILE_JOIN"
+fi
 
 if [ "$VERBOSE" -gt 0 ]; then echo "<< done >>"; fi
 

@@ -7,8 +7,6 @@ python script to calculate parental coancestry of individuals
 import csv
 import re
 
-import sys
-
 def coancestry(loci1, loci2):
     """
     Arguments:
@@ -59,6 +57,10 @@ def coa_fit_csv(phenfile, markfile, outfile, header=True):
         phen_rep_col = phen_head.index("replicate")
     except IndexError:
         phen_rep_col = None
+    try:
+        phen_gen_col = phen_head.index("generation")
+    except IndexError:
+        phen_gen_col = None
     # find the marker columns to keep
     try:
         mark_head = mark.next()
@@ -85,20 +87,35 @@ def coa_fit_csv(phenfile, markfile, outfile, header=True):
         parent_loci[(ind, rep)] = loci
     # write out the header
     if header:
-        row = ('replicate', 'id', 'patch', 'coancestry', 'fitness')
+        row = (
+                'replicate',
+                'generation',
+                'id',
+                'patch',
+                'coancestry',
+                'fitness',
+                )
         csvwriter.writerow(row)
     # write out coancestry and fitness
     for cols in phen:
         ind = cols[phen_id_col]
         patch = cols[phen_patch_col]
         rep = 1 if phen_rep_col is None else cols[phen_rep_col]
+        gen = 0 if phen_gen_col is None else cols[phen_gen_col]
         mom = (cols[phen_mom_col], rep)
         dad = (cols[phen_dad_col], rep)
         fit = cols[phen_fit_col]
         # get the parents' coancestry
         coa = coancestry(parent_loci[mom], parent_loci[dad])
         # write to the csv
-        row = (rep, ind, patch, coa, fit)
+        row = (
+                rep,
+                gen,
+                ind,
+                patch,
+                coa,
+                fit
+                )
         csvwriter.writerow(row)
 
 if __name__ == '__main__':
@@ -116,12 +133,13 @@ if __name__ == '__main__':
     [flag_ops, param_ops, arg_ops] = arg_proc(sys.argv[1:])
     for param, value in param_ops:
         if param == 'output':
-            outfile = file(value, 'w')
+            outfile = sys.stdout if value == '-' else file(value, 'w')
     if len(arg_ops) < 2:
-        sys.stderr.write("usage: python %s [OPTIONS] PHENCSV MARKCSV\n")
+        sys.stderr.write("usage: python %s [OPTIONS] PHENCSV MARKCSV\n" % \
+                (sys.argv[0]))
         sys.exit(1)
-    phenfile = file(arg_ops[0], 'r')
-    markfile = file(arg_ops[1], 'r')
+    phenfile = sys.stdin if arg_ops[0] == '-' else file(arg_ops[0], 'r')
+    markfile = sys.stdin if arg_ops[1] == '-' else file(arg_ops[1], 'r')
 
     # generate the combined file
     coa_fit_csv(phenfile, markfile, outfile)
