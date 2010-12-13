@@ -7,17 +7,22 @@ OUTDIR="zhou_results"
 VERBOSE=1
 
 # clear the results
-rm -fr "$OUTDIR"
+COMMAND="rm"
+OPTIONS="-fr"
+$COMMAND $OPTIONS "$OUTDIR"
 
 # run quantiNEMO
 if [ "$VERBOSE" -gt 0 ]; then echo "<< running quantiNemo >>"; fi
-./quantiNemo zhou.ini
+PARAMFILE="zhou.ini"
+COMMAND="./quantiNemo"
+OPTIONS=""
+$COMMAND $OPTIONS "$PARAMFILE"
 
 # process the phenotype files
 if [ "$VERBOSE" -gt 0 ]; then echo "<< processing phenotypes >>"; fi
 COMMAND="python fstat2csv.py"
 OPTIONS="--types= --patch --no-age --no-sex --mother --father --fitness"
-OUTFILE_PHEN="$OUTDIR/phenotype.csv"
+OUTFILE_PHEN="$OUTDIR/ind_phen.csv"
 FIRST=1
 for PHENFILE in "$OUTDIR"/phenotypes/*.phe; do
     # get the replication and generation from the file name
@@ -45,7 +50,7 @@ done
 if [ "$VERBOSE" -gt 0 ]; then echo "<< processing markers >>"; fi
 COMMAND="python fstat2csv.py"
 OPTIONS="--no-patch --no-age --no-sex --no-mother --no-father --no-fitness"
-OUTFILE_MARK="$OUTDIR/markers.csv"
+OUTFILE_MARK="$OUTDIR/ind_mark.csv"
 FIRST=1
 for MARKFILE in "$OUTDIR"/markers/*.dat; do
     # get the replication and generation from the file name
@@ -69,13 +74,13 @@ for MARKFILE in "$OUTDIR"/markers/*.dat; do
     fi
 done
 
-# join them as the inbreeding file
+# join them as the coancestry-fitness file
 # TODO: rewrite this using database so it works with larger data
 if [ "$VERBOSE" -gt 0 ]; then echo "<< calculating coa and fit >>"; fi
 COMMAND="python coafitcsv.py"
 OPTIONS=""
-OUTFILE_INBR="$OUTDIR/inbreeding.csv"
-$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_INBR"
+OUTFILE_COAW="$OUTDIR/ind_coaw.csv"
+$COMMAND $OPTIONS "$OUTFILE_PHEN" "$OUTFILE_MARK" > "$OUTFILE_COAW"
 
 # process the patch statistics
 STATFILE="$OUTDIR/simulation_stats.txt"
@@ -94,12 +99,12 @@ if [ -e "$STATFILE" ]; then
     OUTFILE_STAT="$OUTDIR/patch_stats.csv"
     $COMMAND $OPTIONS "$OUTFILE_CONV" "$OUTFILE_STAT"
 
-    # join together the patch age and individual data
-    if [ "$VERBOSE" -gt 0 ]; then echo "<< joining colony age >>"; fi
-    COMMAND="python joincolnage.py"
+    # join together the patch and inbreeding data
+    if [ "$VERBOSE" -gt 0 ]; then echo "<< joining inbreeding data >>"; fi
+    COMMAND="python inbrdeprcsv.py"
     OPTIONS=""
-    OUTFILE_JOIN="$OUTDIR/stats.csv"
-    $COMMAND $OPTIONS "$OUTFILE_INBR" "$OUTFILE_STAT" > "$OUTFILE_JOIN"
+    OUTFILE_INBR="$OUTDIR/patch_inbr.csv"
+    $COMMAND $OPTIONS "$OUTFILE_COAW" "$OUTFILE_STAT" > "$OUTFILE_INBR"
 fi
 
 if [ "$VERBOSE" -gt 0 ]; then echo "<< done >>"; fi

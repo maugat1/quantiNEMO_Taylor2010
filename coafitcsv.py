@@ -134,7 +134,7 @@ if __name__ == '__main__':
     for param, value in param_ops:
         if param == 'output':
             outfile = sys.stdout if value == '-' else file(value, 'w')
-    if len(arg_ops) < 2:
+    if len(arg_ops) != 2:
         sys.stderr.write("usage: python %s [OPTIONS] PHENCSV MARKCSV\n" % \
                 (sys.argv[0]))
         sys.exit(1)
