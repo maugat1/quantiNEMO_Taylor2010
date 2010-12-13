@@ -133,14 +133,6 @@ class StatHandler: public StatHandlerBase {
         ///@}
 
 
-        ///@}
-        ///@name Coancestries
-        ///@{
-        double getIndInbr() { writeIndInbreeding(); return 0; };
-        void writeIndInbreeding ();
-        ///@}
-
-
         //fstat:
         double _ho, _hs, _ht, _hsnei, _htnei, _nb_all_global, _fst, _fis, _fit;
         double _fst_wc, _fis_wc, _fit_wc;

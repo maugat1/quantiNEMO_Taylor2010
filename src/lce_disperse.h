@@ -38,14 +38,23 @@
 #include "lifecycleevent.h"
 #include "param.h"
 
+// enumerated type for the dispersal
+typedef enum {
+    DISP_NONE = 0,
+    DISP_MIGR = 1,
+    DISP_COLN = 2,
+    DISP_BOTH = 3,
+} DISP_TYPE;
 
-/**The base class of the dispersal LCEs, all events move offspring to the post-dispersal patch containers.
- * Stores the dispersal matrices and dispersal model parameters and interface.
- **/
-class LCE_Disperse: public LCE
-{
+
+/* Stores the dispersal matrices and dispersal model parameters and interface.
+ * Takes care of the process of dispersal. */
+class Disperser {
     protected:
-        /***** Migration *****/
+        ParamSet *_paramSet;
+        Metapop *_popPtr;
+        // 0: None, 1: migration, 2: colonization, 3: both
+        DISP_TYPE _disp_type;
         // 0: island; 1: propagule island, 2: 1D SS; 3: 2D SS
         int    _disp_model;
         // 0: torus; 1: reflecting; 2: absorbing
@@ -78,144 +87,138 @@ class LCE_Disperse: public LCE
         double _migr_rateCorner[2];
         double _migr_rate_propagule[2];
 
-        void _disperse_2D_SS_corner_4Neighbour(bool coln=false);
-        void _disperse_2D_SS_corner_8Neighbour(bool coln=false);
-        void _disperse_2D_SS_middle_4Neighbour(bool coln=false);
-        void _disperse_2D_SS_middle_8Neighbour(bool coln=false);
-        void _disperse_2D_SS_edge_4Neighbour(bool coln=false);
-        void _disperse_2D_SS_edge_8Neighbour(bool coln=false);
+        void _disperse_2D_SS_corner_4Neighbour();
+        void _disperse_2D_SS_corner_8Neighbour();
+        void _disperse_2D_SS_middle_4Neighbour();
+        void _disperse_2D_SS_middle_8Neighbour();
+        void _disperse_2D_SS_edge_4Neighbour();
+        void _disperse_2D_SS_edge_8Neighbour();
 
         /** factor to the migration rate */
-        void _setDispersalFactor(bool coln=false);
-        double (LCE_Disperse::* get_disp_factor_funcPtr)(Patch* p, bool coln);
-        double (LCE_Disperse::* get_coln_factor_funcPtr)(Patch* p, bool coln);
-        double get_disp_factor_one(Patch* p, bool coln=false) {return 1;}
-        double get_disp_factor_min(Patch* p, bool coln=false) {
-            return (coln ? _coln_factor[0] : _disp_factor[0]);
+        void _setDispersalFactor();
+        double (Disperser::* get_disp_factor_funcPtr)(Patch* p);
+        double (Disperser::* get_coln_factor_funcPtr)(Patch* p);
+        double get_disp_factor_one(Patch* p) {return 1;}
+        double get_disp_factor_min(Patch* p) { return _disp_factor[0]; }
+        double get_disp_factor_max(Patch* p) { return _disp_factor[1]; }
+        double get_disp_factor_k_threshold(Patch* p) {
+            return p->get_density(OFFSPRG)<_disp_factor[2] ?
+                _disp_factor[0] : _disp_factor[1];
         }
-        double get_disp_factor_max(Patch* p, bool coln=false) {
-            return (coln ? _coln_factor[1] : _disp_factor[1]);
+        double get_disp_factor_k_logistic(Patch* p) {
+            return generalLogisticCurve(p->get_density(OFFSPRG),
+                    _disp_factor[0], _disp_factor[1], _disp_factor[2],
+                    _disp_factor[3], _disp_factor[4]);
         }
-        double get_disp_factor_k_threshold(Patch* p, bool coln=false) {
-            if( coln ) {
-                return p->get_density(OFFSPRG)<_coln_factor[2] ?
-                    _coln_factor[0] : _coln_factor[1];
-            } else {
-                return p->get_density(OFFSPRG)<_disp_factor[2] ?
-                    _disp_factor[0] : _disp_factor[1];
-            }
-        }
-        double get_disp_factor_k_logistic(Patch* p, bool coln=false) {
-            if( coln ) {
-                return generalLogisticCurve(p->get_density(OFFSPRG),
-                        _coln_factor[0], _coln_factor[1], _coln_factor[2],
-                        _coln_factor[3], _coln_factor[4]);
-            } else {
-                return generalLogisticCurve(p->get_density(OFFSPRG),
-                        _disp_factor[0], _disp_factor[1], _disp_factor[2],
-                        _disp_factor[3], _disp_factor[4]);
-            }
-        }
-
-
-        /***** Colonization *****/
-        // 0: island; 1: propagule island, 2: 1D SS; 3: 2D SS
-        int    _coln_model;
-        // 0: torus; 1: reflecting; 2: absorbing
-        int    _coln_border_model;
-        // 0: 4 neighbours; 1: 8 neighbours
-        int    _coln_lattice_range;
-        double _coln_propagule_prob;
-        unsigned int _coln_nb_patch;
-        // dimensions of the 2D lattice 0: nbRows; 1: nbColumns
-        unsigned int _coln_lattice_dims[2];
-        // used when the colonization rate differs depending on the popualtion
-        // density
-        //    0: min           (default: 0)
-        //    1: max           (default: 1)
-        //    2: max growth    (default: 0)
-        //    3: growth rate   (default: 1e9)
-        //    4: symmetry      (default: 1)
-        double* _coln_factor;
-        /**The sex-specific dispersal matrices, [0] for males, [1] for females,
-         * might be used as connectivity matrix as well*/
-        TMatrix* _colnMatrix[2];
-        // colonization rate of males [0], and females [1]
-        double _coln_rate[2];
-        // 2D-SS: colonization from the edge to the middle (negative numbers
-        // mean that the ind get lost (absorbing boundaries))
-        double _coln_rateIn[2];
-        // 2D-SS: colonization from the edge to the outter
-        double _coln_rateOut[2];
-        // 2D-SS: colonization from the corner to the middle
-        double _coln_rateCorner[2];
-        double _coln_rate_propagule[2];
 
         /***** General *****/
         void _sendEmigrants(Patch* curPatch,const int& home,const int& target,
-                int* nbInd, double* dispRate, const double& factor,
-                bool coln=false);
+                int* nbInd, double* dispRate, const double& factor);
         void _sendEmigrants(Patch* curPatch,const int& home,const int& target,
                 const int& size,const double& dispRate, const double& factor,
-                const sex_t& SEX, bool coln=false);
-        void _get_lattice_dims(bool coln=false);
+                const sex_t& SEX);
+        void _get_lattice_dims();
 
 
     public:
         // dispersal function pointer
-        void (LCE_Disperse::* doDispersal) (bool coln);
-        // colonization function pointer, NULL if coln the same as migration
-        void (LCE_Disperse::* doColonization) (bool coln);
+        void (Disperser::* doDispersal) ();
 
         ///@name Dispersal Matrix
         ///@{
-        void setDispersalMatrix(bool coln=false);
-        void setDispersalRate(bool coln=false);
-        void checkDispMatrix(TMatrix* mat, bool coln=false);
-        void setDispMatrix(TMatrix* mat, bool coln=false);
-        void setDispMatrix(sex_t sex, TMatrix* mat, bool coln=false);
+        void setDispersalMatrix();
+        void setDispersalRate();
+        void checkDispMatrix(TMatrix* mat);
+        void setDispMatrix(TMatrix* mat);
+        void setDispMatrix(sex_t sex, TMatrix* mat);
         ///@}
 
-        int  get_disp_model(bool coln=false) {
-            return coln ? _coln_model : _disp_model;
-        }
-        string get_disp_model_str(bool coln=false)
+        int  get_disp_type() { return _disp_type; }
+        int  get_disp_model() { return _disp_model; }
+        string get_disp_model_str()
         {
-            if( !coln ) {
-                if(doDispersal == &LCE_Disperse::disperse_zeroDispersal)
-                    return "no migration";
-                if(doDispersal == &LCE_Disperse::dispersal_matrix)
-                    return "matrix";
-                switch(_disp_model){
-                    case 0: return "island";
-                    case 1: return "propagule island";
-                    case 2: return "1D stepping stone";
-                    case 3: return "2D stepping stone";
-                }
-                return"";
-            } else {
-                if(doColonization == &LCE_Disperse::disperse_zeroDispersal)
-                    return "no colonization";
-                if(doColonization == &LCE_Disperse::dispersal_matrix)
-                    return "matrix";
-                switch(_coln_model){
-                    case 0: return "island";
-                    case 1: return "propagule island";
-                    case 2: return "1D stepping stone";
-                    case 3: return "2D stepping stone";
-                }
-                return"";
+            if(doDispersal == &Disperser::disperse_zeroDispersal)
+                return "no";
+            if(doDispersal == &Disperser::dispersal_matrix)
+                return "matrix";
+            switch(_disp_model){
+                case 0: return "island";
+                case 1: return "propagule island";
+                case 2: return "1D stepping stone";
+                case 3: return "2D stepping stone";
             }
+            return"";
         }
 
-        virtual void disperse_zeroDispersal(bool coln=false);
-        virtual void disperse_island(bool coln=false);
-        virtual void disperse_island_propagule(bool coln=false);
-        virtual void disperse_1D_stepping_stone(bool coln=false);
-        virtual void dispersal_matrix(bool coln=false);
-        virtual void disperse_2D_stepping_stone_4Neighbour(bool coln=false);
-        virtual void disperse_2D_stepping_stone_8Neighbour(bool coln=false);
+        virtual void disperse_zeroDispersal();
+        virtual void disperse_island();
+        virtual void disperse_island_propagule();
+        virtual void disperse_1D_stepping_stone();
+        virtual void dispersal_matrix();
+        virtual void disperse_2D_stepping_stone_4Neighbour();
+        virtual void disperse_2D_stepping_stone_8Neighbour();
 
+        /***** General *****/
+        Disperser(ParamSet *paramSet, DISP_TYPE type = DISP_NONE);
+        virtual ~Disperser();
+        virtual void execute ();
+        virtual bool init(Metapop* popPtr);
+};
+
+
+/* The base class of the dispersal LCEs, all events move offspring to the
+ * post-dispersal patch containers. */
+class LCE_Disperse: public LCE
+{
+    protected:
+        Disperser *_disperser;
+        Disperser *_colonizer;
+        unsigned int _nb_patch;
+    public:
+        int isSet_disperser() { return _disperser != NULL; }
+        int isSet_colonizer() { return _colonizer != NULL; }
+        int  get_disp_model()
+        {
+            return _disperser ? _disperser->get_disp_model() : 0;
+        }
+        int  get_coln_model()
+        {
+            return _colonizer ? _colonizer->get_disp_model() : get_disp_model();
+        }
+        string get_disp_model_str()
+        {
+            if(_disperser) {
+                if(_disperser->doDispersal ==
+                        &Disperser::disperse_zeroDispersal)
+                    return "no migration";
+                if(_disperser->doDispersal == &Disperser::dispersal_matrix)
+                    return "matrix";
+                switch(get_disp_model()){
+                    case 0: return "island";
+                    case 1: return "propagule island";
+                    case 2: return "1D stepping stone";
+                    case 3: return "2D stepping stone";
+                }
+            }
+            return "";
+        }
+        string get_coln_model_str()
+        {
+            if(_colonizer) {
+                if(_colonizer->doDispersal ==
+                        &Disperser::disperse_zeroDispersal)
+                    return "no migration";
+                if(_colonizer->doDispersal == &Disperser::dispersal_matrix)
+                    return "matrix";
+                switch(get_coln_model()){
+                    case 0: return "island";
+                    case 1: return "propagule island";
+                    case 2: return "1D stepping stone";
+                    case 3: return "2D stepping stone";
+                }
+            }
+            return get_disp_model_str();
+        }
 
         /***** General *****/
         LCE_Disperse(int rank = my_NAN);

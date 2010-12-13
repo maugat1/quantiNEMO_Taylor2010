@@ -44,21 +44,8 @@
 //                             ******** LCE_Disperse ********
 /******************************************************************************/
 LCE_Disperse::LCE_Disperse(int rank) : LCE("disperse","",rank),
-    _disp_model(0), _border_model(0), _lattice_range(0),
-    _disp_propagule_prob(0), _disp_factor(0), _coln_model(0),
-    _coln_border_model(0), _coln_lattice_range(0), _coln_propagule_prob(0),
-    _coln_factor(0), doDispersal(NULL), doColonization(NULL)
+    _disperser(NULL), _colonizer(NULL)
 {
-
-    for(int i=0; i<2; ++i) {
-        _dispMatrix[i] = NULL;
-        _migr_rate[i] = 0;
-        _lattice_dims[i] = 0;
-        _colnMatrix[i] = NULL;
-        _coln_rate[i] = 0;
-        _coln_lattice_dims[i] = 0;
-    }
-
     // migration/dispersal parameters
     this->add_parameter("dispersal_model",INT2,false,true,0,3,"0");
     this->add_parameter("dispersal_border_model",INT2,false,true,0,2,"0");
@@ -102,119 +89,24 @@ LCE_Disperse::LCE_Disperse(int rank) : LCE("disperse","",rank),
 // -----------------------------------------------------------------------------
 LCE_Disperse::~LCE_Disperse()
 {
-    if(_dispMatrix[0]) delete _dispMatrix[0];
-    if(_colnMatrix[0]) delete _colnMatrix[0];
-    if(_dispMatrix[1]) delete _dispMatrix[1];
-    if(_colnMatrix[1]) delete _colnMatrix[1];
-    if(_disp_factor)   delete[] _disp_factor;
-    if(_coln_factor)   delete[] _coln_factor;
-}
-
-// -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_zeroDispersal
-// -----------------------------------------------------------------------------
-/** This function is set, when there is no dispersal or if there is only a
- * single population.
- */
-void LCE_Disperse::disperse_zeroDispersal(bool coln) {}
-
-// -----------------------------------------------------------------------------
-// LCE_Disperse::setDispMatrix
-// -----------------------------------------------------------------------------
-void LCE_Disperse::setDispMatrix (TMatrix* mat, bool coln)
-{
-    checkDispMatrix(mat, coln);
-    if( !coln ) {
-        if(_dispMatrix[0])	delete _dispMatrix[0];
-        if(_dispMatrix[1])  delete _dispMatrix[1];
-        _dispMatrix[0] = new TMatrix(*mat);
-        _dispMatrix[1] = new TMatrix(*mat);
-    } else {
-        if(_colnMatrix[0])	delete _colnMatrix[0];
-        if(_colnMatrix[1])  delete _colnMatrix[1];
-        _colnMatrix[0] = new TMatrix(*mat);
-        _colnMatrix[1] = new TMatrix(*mat);
-    }
-}
-
-// -----------------------------------------------------------------------------
-// LCE_Disperse::setDispMatrix
-// -----------------------------------------------------------------------------
-void LCE_Disperse::setDispMatrix (sex_t sex, TMatrix* mat, bool coln)
-{
-    checkDispMatrix(mat, coln);
-    if( !coln ) {
-        if(_dispMatrix[sex]) delete _dispMatrix[sex];
-        _dispMatrix[sex] = new TMatrix(*mat);
-    } else {
-        if(_colnMatrix[sex]) delete _colnMatrix[sex];
-        _colnMatrix[sex] = new TMatrix(*mat);
-    }
-}
-
-// -----------------------------------------------------------------------------
-// LCE_Disperse::checkDispMatrix
-// -----------------------------------------------------------------------------
-void LCE_Disperse::checkDispMatrix (TMatrix* mat, bool coln)
-{
-    double cntr;
-    unsigned int i, j;
-    if( !coln ) {
-        mat->get_dims(_lattice_dims);
-        if(_lattice_dims[0] != _lattice_dims[1] ||
-                _lattice_dims[0] !=  _nb_patch)
-        {
-            fatal("The dimension of the dispersal matrix (%ix%i) does not "
-                    "match the number of patches (%i)!\n", _lattice_dims[0],
-                    _lattice_dims[1], _nb_patch);
-        }
-        for(i = 0; i < _lattice_dims[0]; ++i) {
-            cntr = 0;
-            for(j = 0; j < _lattice_dims[1]; ++j) {
-                cntr += mat->get(i,j);
-            }
-            // (cntr != 1): floating numbers can never be the same
-            if(abs(1-cntr) > 1e-4) {
-                warning("The elements of row %i of the dispersal matrix do "
-                        "not sum to 1!\n", i+1);
-            }
-        }
-    } else {
-        mat->get_dims(_coln_lattice_dims);
-        if(_coln_lattice_dims[0] != _coln_lattice_dims[1] ||
-                _coln_lattice_dims[0] !=  _nb_patch)
-        {
-            fatal("The dimension of the colonization matrix (%ix%i) does not "
-                    "match the number of patches (%i)!\n",
-                    _coln_lattice_dims[0], _coln_lattice_dims[1], _nb_patch);
-        }
-        for(i = 0; i < _coln_lattice_dims[0]; ++i) {
-            cntr = 0;
-            for(j = 0; j < _coln_lattice_dims[1]; ++j) {
-                cntr += mat->get(i,j);
-            }
-            // (cntr != 1): floating numbers can never be the same
-            if(abs(1-cntr) > 1e-4) {
-                warning("The elements of row %i of the colonization matrix do "
-                        "not sum to 1!\n", i+1);
-            }
-        }
-    }
+    if(_disperser) delete _disperser;
+    if(_colonizer) delete _colonizer;
 }
 
 // -----------------------------------------------------------------------------
 // LCE_Disperse::execute
 // -----------------------------------------------------------------------------
-void LCE_Disperse::execute() {
+void LCE_Disperse::execute()
+{
 #ifdef _DEBUG
     message("  LCE_Disperse ... ");
 #endif
 
     preDispersal();
-    if( doColonization ) {
-        (this->*doColonization)(true);
+    if( _colonizer ) {
+        _colonizer->execute();
     }
-    (this->*doDispersal)(false);
+    _disperser->execute();
     postDispersal();
 
 #ifdef _DEBUG
@@ -296,11 +188,166 @@ void LCE_Disperse::postDispersal()
             current_patch->nbImmigrant;
     }
 }
+
 // -----------------------------------------------------------------------------
-// LCE_Disperse::dispersal_matrix
+// LCE_Disperse::init
+// -----------------------------------------------------------------------------
+bool LCE_Disperse::init (Metapop* popPtr)
+{
+    LCE::init(popPtr);
+
+    // clear the Dispersers
+    if(_disperser) delete _disperser;
+    if(_colonizer) delete _colonizer;
+    _disperser = _colonizer = NULL;
+    
+    // if only one patch is used there is simply no migration
+    _nb_patch = popPtr->getPatchNbr();
+    if( _nb_patch == 1 ) {
+        _disperser = new Disperser(_paramSet, DISP_NONE);
+        return true;
+    }
+
+    // create the Dispersers
+    if( _paramSet->isSet("colonization_model") ||
+            _paramSet->isSet("colonization_border_model") ||
+            _paramSet->isSet("colonization_lattice_range") ||
+            _paramSet->isSet("colonization_lattice_dims") ||
+            _paramSet->isSet("colonization_propagule_prob") ||
+            _paramSet->isSet("colonization_rate") ||
+            _paramSet->isSet("colonization_rate_fem") ||
+            _paramSet->isSet("colonization_rate_mal") ||
+            _paramSet->isSet("colonization_k_threshold") ||
+            _paramSet->isSet("colonization_k_min") ||
+            _paramSet->isSet("colonization_k_max") ||
+            _paramSet->isSet("colonization_k_max_growth") ||
+            _paramSet->isSet("colonization_k_growth_rate") ||
+            _paramSet->isSet("colonization_k_symmetry") )
+    {
+        _disperser = new Disperser(_paramSet, DISP_MIGR);
+        _colonizer = new Disperser(_paramSet, DISP_COLN);
+        _colonizer->init(popPtr);
+    } else {
+        _disperser = new Disperser(_paramSet, DISP_BOTH);
+    }
+    _disperser->init(popPtr);
+
+    return true;
+}
+
+//-----------------------------------------------------------------------------
+// LCE_Disperse::executeBeforeEachGeneration
+//-----------------------------------------------------------------------------
+void LCE_Disperse::executeBeforeEachGeneration(const int& gen)
+{
+    // temporal parameters
+    map<string, Param*>* pParam = _paramSet->getTemporalParams(gen);
+
+    // if it is a temporal paramter
+    if(pParam) {
+        // check if a change has to be made
+        if(_paramSet->updateTemporalParams(gen)) init(_popPtr);
+    }
+}
+
+
+/******************************************************************************/
+//                             ******** Disperser ********
+/******************************************************************************/
+Disperser::Disperser(ParamSet *paramSet, DISP_TYPE type) : _disp_model(0),
+    _border_model(0), _lattice_range(0), _disp_propagule_prob(0),
+    _disp_factor(0)
+{
+    // set the parameter set pointer
+    _paramSet = paramSet;
+
+    // set the dispersal type (none, migr, coln, both)
+    _disp_type = type;
+
+    for(int i=0; i<2; ++i) {
+        _dispMatrix[i] = NULL;
+        _migr_rate[i] = 0;
+        _lattice_dims[i] = 0;
+    }
+}
+
+// -----------------------------------------------------------------------------
+Disperser::~Disperser()
+{
+    if(_dispMatrix[0]) delete _dispMatrix[0];
+    if(_dispMatrix[1]) delete _dispMatrix[1];
+    if(_disp_factor)   delete[] _disp_factor;
+}
+
+// -----------------------------------------------------------------------------
+// Disperser::disperse_zeroDispersal
+// -----------------------------------------------------------------------------
+/** This function is set, when there is no dispersal or if there is only a
+ * single population.
+ */
+void Disperser::disperse_zeroDispersal() {}
+
+// -----------------------------------------------------------------------------
+// Disperser::setDispMatrix
+// -----------------------------------------------------------------------------
+void Disperser::setDispMatrix (TMatrix* mat)
+{
+    checkDispMatrix(mat);
+    if(_dispMatrix[0])	delete _dispMatrix[0];
+    if(_dispMatrix[1])  delete _dispMatrix[1];
+    _dispMatrix[0] = new TMatrix(*mat);
+    _dispMatrix[1] = new TMatrix(*mat);
+}
+
+// -----------------------------------------------------------------------------
+// Disperser::setDispMatrix
+// -----------------------------------------------------------------------------
+void Disperser::setDispMatrix (sex_t sex, TMatrix* mat)
+{
+    checkDispMatrix(mat);
+    if(_dispMatrix[sex]) delete _dispMatrix[sex];
+    _dispMatrix[sex] = new TMatrix(*mat);
+}
+
+// -----------------------------------------------------------------------------
+// Disperser::checkDispMatrix
+// -----------------------------------------------------------------------------
+void Disperser::checkDispMatrix (TMatrix* mat)
+{
+    double cntr;
+    unsigned int i, j;
+    mat->get_dims(_lattice_dims);
+    if(_lattice_dims[0] != _lattice_dims[1] || _lattice_dims[0] !=  _nb_patch) {
+        fatal("The dimension of the dispersal matrix (%ix%i) does not "
+                "match the number of patches (%i)!\n", _lattice_dims[0],
+                _lattice_dims[1], _nb_patch);
+    }
+    for(i = 0; i < _lattice_dims[0]; ++i) {
+        cntr = 0;
+        for(j = 0; j < _lattice_dims[1]; ++j) {
+            cntr += mat->get(i,j);
+        }
+        // (cntr != 1): floating numbers can never be the same
+        if(abs(1-cntr) > 1e-4) {
+            warning("The elements of row %i of the dispersal matrix do "
+                    "not sum to 1!\n", i+1);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Disperser::execute
+// -----------------------------------------------------------------------------
+void Disperser::execute()
+{
+    (this->*doDispersal)();
+}
+
+// -----------------------------------------------------------------------------
+// Disperser::dispersal_matrix
 // -----------------------------------------------------------------------------
 /** if the dispersal rates are defined by a matrix */
-void LCE_Disperse::dispersal_matrix(bool coln)
+void Disperser::dispersal_matrix()
 {
     Patch *current_patch;
     int nbInd[2];
@@ -313,18 +360,14 @@ void LCE_Disperse::dispersal_matrix(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM, OFFSx);
         nbInd[MAL] = current_patch->size(MAL, OFFSx);
-        factor = coln ?
-            (this->*get_coln_factor_funcPtr)(current_patch, coln) :
-            (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
 
         // dispersal to each other patch
         for(target=0; target<_nb_patch; ++target) {
             // if it is the same patch, continue
             if( home == target ) continue;
-            disp[FEM] = (coln ? _colnMatrix[FEM] :_dispMatrix[FEM])->get(
-                    home,target);
-            disp[MAL] = (coln ? _colnMatrix[MAL] : _dispMatrix[MAL])->get(
-                    home,target);
+            disp[FEM] = _dispMatrix[FEM]->get(home,target);
+            disp[MAL] = _dispMatrix[MAL]->get(home,target);
             // send the emigrants
             _sendEmigrants(current_patch, home, target, nbInd, disp, factor);
         } // end for each target
@@ -332,15 +375,14 @@ void LCE_Disperse::dispersal_matrix(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_sendEmigrants
+// Disperser::_sendEmigrants
 // -----------------------------------------------------------------------------
 /** function to send emigrants from the home to the target patch for both sexes.
  * If the migration rate is negative, the emigrating individuals are removed
  * (absorbed)
  */
-void LCE_Disperse::_sendEmigrants(Patch* curPatch, const int& home,
-        const int& target, int* nbInd, double* dispRate, const double& factor,
-        bool coln)
+void Disperser::_sendEmigrants(Patch* curPatch, const int& home,
+        const int& target, int* nbInd, double* dispRate, const double& factor)
 {
     _sendEmigrants(curPatch, home, target, nbInd[FEM], dispRate[FEM], factor,
             FEM);
@@ -349,20 +391,20 @@ void LCE_Disperse::_sendEmigrants(Patch* curPatch, const int& home,
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_sendEmigrants
+// Disperser::_sendEmigrants
 // -----------------------------------------------------------------------------
 /** function to send emigrants form the home to the target patch for a specific
  * sex. If the migration rate is negative, the emigrating individuals are
  * removed (absorbed)
  */
-void LCE_Disperse::_sendEmigrants(Patch* curPatch, const int& home,
+void Disperser::_sendEmigrants(Patch* curPatch, const int& home,
         const int& target, const int& size, const double& dispRate,
-        const double& factor, const sex_t& SEX, bool coln)
+        const double& factor, const sex_t& SEX)
 {
     double d = dispRate * factor;
     int nb_emigrants;
 
-    // check if migration occurs
+    // check if dispersal occurs
     if(!d) return;
 
     // get the number of individuals remaining in the patch
@@ -371,8 +413,10 @@ void LCE_Disperse::_sendEmigrants(Patch* curPatch, const int& home,
 
     // check for failed colonization/migration (colonists to nonextinct patch
     // or migrants to extinct patch)
-    if( d > 0 && doColonization ) {
-        if( (bool)coln ^ (bool)(_popPtr->getPatch(target)->get_isExtinct()) ) { 
+    if( d > 0 && (_disp_type && ((_disp_type ^ DISP_MIGR) ^ DISP_COLN)) ) {
+        if( (bool)(_disp_type & DISP_COLN) ^
+                (bool)(_popPtr->getPatch(target)->get_isExtinct()) )
+        { 
             // failed emigrants will be removed
             d = -d;
         }
@@ -413,12 +457,12 @@ void LCE_Disperse::_sendEmigrants(Patch* curPatch, const int& home,
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_island
+// Disperser::disperse_island
 // -----------------------------------------------------------------------------
 /** island migration model with a female and a male migration rate
  * migration rate to any patch is m/(_nb_patch-1)
  */
-void LCE_Disperse::disperse_island(bool coln)
+void Disperser::disperse_island()
 {
     Patch *current_patch;
     int nbInd[2];
@@ -430,27 +474,26 @@ void LCE_Disperse::disperse_island(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = coln ? (this->*get_coln_factor_funcPtr)(current_patch, coln) :
-            (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
 
         // dispersal to each other patch
         for(target=0; target<_nb_patch; ++target) {
             // if it is the same patch, continue
             if( home == target ) continue;
             // send emigrants
-            _sendEmigrants(current_patch, home, target, nbInd,
-                    coln ? _coln_rate :_migr_rate, factor);
+            _sendEmigrants(current_patch, home, target, nbInd, _migr_rate,
+                    factor);
         } // end for each target
     }//end for each home patch
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_island_propagule
+// Disperser::disperse_island_propagule
 // -----------------------------------------------------------------------------
 /** island migration model with a female and a male migration rate
  * migration rate to any patch is m/(_nb_patch-1)
  */
-void LCE_Disperse::disperse_island_propagule(bool coln)
+void Disperser::disperse_island_propagule()
 {
     Patch *current_patch;
     int nbInd[2];
@@ -462,38 +505,34 @@ void LCE_Disperse::disperse_island_propagule(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = coln ? (this->*get_coln_factor_funcPtr)(current_patch, coln) :
-            (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
 
         // dispersal to the propagule patch
         do{ // draw the propagule patch randomly
             propagule = SimRunner::r.Uniform(_nb_patch);
         } while( home == propagule );
         _sendEmigrants(current_patch, home, propagule, nbInd,
-                coln ? _coln_rate_propagule : _migr_rate_propagule, factor);
+                _migr_rate_propagule, factor);
 
         // migration to each other patch
         for( target=0; target<_nb_patch; ++target ) {
             // if it is the same patch, continue
             if( home == target ) continue;
             // send emigrants
-            _sendEmigrants(current_patch, home, target, nbInd,
-                    coln ? _coln_rate :_migr_rate, factor);
+            _sendEmigrants(current_patch, home, target, nbInd, _migr_rate,
+                    factor);
         } // end for each target
     }//end for each home patch
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_1D_stepping_stone
+// Disperser::disperse_1D_stepping_stone
 // -----------------------------------------------------------------------------
 /** island migration model with a female and a male migration rate
  * migration rate to any patch is m/2, except for the edge patches
  */
-void LCE_Disperse::disperse_1D_stepping_stone(bool coln)
+void Disperser::disperse_1D_stepping_stone()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch *current_patch;
     int nbInd[2];
     double factor;
@@ -503,7 +542,7 @@ void LCE_Disperse::disperse_1D_stepping_stone(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL]= current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home-1, nbInd, _migr_rate, factor);   // migrate left
         _sendEmigrants(current_patch, home, home+1, nbInd, _migr_rate, factor);   // migrate right
         current_patch->move(OFFSx,ADLTx);  // not migrated individuals remain in the original patch
@@ -513,7 +552,7 @@ void LCE_Disperse::disperse_1D_stepping_stone(bool coln)
     current_patch = _popPtr->getPatch(0);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL]= current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, 0, _nb_patch-1, nbInd, _migr_rateOut, factor);   // migrate left
     _sendEmigrants(current_patch, 0, 1,           nbInd, _migr_rateIn, factor);    // migrate right
     current_patch->move(OFFSx,ADLTx);  // not migrated individuals remain in the original patch
@@ -522,21 +561,18 @@ void LCE_Disperse::disperse_1D_stepping_stone(bool coln)
     current_patch = _popPtr->getPatch(_nb_patch-1); // last patch
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL]= current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, _nb_patch-1, _nb_patch-2, nbInd, _migr_rateIn, factor);   // migrate left
     _sendEmigrants(current_patch, _nb_patch-1, 0,           nbInd, _migr_rateOut, factor);  // migrate right
     current_patch->move(OFFSx,ADLTx);  // not migrated individuals remain in the original patch
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_middle_4Neighbour
+// Disperser::_disperse_2D_SS_middle_4Neighbour
 // -----------------------------------------------------------------------------
 /** 2D stepping stone migration of the middle patches (4 neighbours)*/
-void LCE_Disperse::_disperse_2D_SS_middle_4Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_middle_4Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch *current_patch;
     int nbInd[2];
     unsigned int r, c, home;
@@ -551,7 +587,7 @@ void LCE_Disperse::_disperse_2D_SS_middle_4Neighbour(bool coln)
             current_patch = _popPtr->getPatch(home);
             nbInd[FEM]    = current_patch->size(FEM,OFFSPRG);
             nbInd[MAL]    = current_patch->size(MAL,OFFSPRG);
-            factor        = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+            factor        = (this->*get_disp_factor_funcPtr)(current_patch);
 
             // migrate
             _sendEmigrants(current_patch, home, home-1, nbInd, _migr_rate, factor); // left
@@ -563,14 +599,11 @@ void LCE_Disperse::_disperse_2D_SS_middle_4Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_middle_8Neighbour
+// Disperser::_disperse_2D_SS_middle_8Neighbour
 // -----------------------------------------------------------------------------
 /** 2D stepping stone migration of the middle patches (8 neighbours)*/
-void LCE_Disperse::_disperse_2D_SS_middle_8Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_middle_8Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch *current_patch;
     int nbInd[2];
     unsigned int r, c, home;
@@ -585,7 +618,7 @@ void LCE_Disperse::_disperse_2D_SS_middle_8Neighbour(bool coln)
             current_patch = _popPtr->getPatch(home);
             nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
             nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-            factor     = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+            factor     = (this->*get_disp_factor_funcPtr)(current_patch);
 
             // migrate
             _sendEmigrants(current_patch, home, home+1,   nbInd, _migr_rate, factor); // right
@@ -601,13 +634,10 @@ void LCE_Disperse::_disperse_2D_SS_middle_8Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_edge_4Neighbour
+// Disperser::_disperse_2D_SS_edge_4Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_edge_4Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch* current_patch;
     int nbInd[2];
     unsigned int x = _lattice_dims[0];
@@ -619,7 +649,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,           nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home+x,           nbInd, _migr_rateIn, factor);  // down
         _sendEmigrants(current_patch, home, home-1,           nbInd, _migr_rateIn, factor);  // left
@@ -631,7 +661,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home-x+1,         nbInd, _migr_rateOut, factor); // right
         _sendEmigrants(current_patch, home, home+x,           nbInd, _migr_rateIn, factor);  // down
         _sendEmigrants(current_patch, home, home-1,           nbInd, _migr_rateIn, factor);  // left
@@ -643,7 +673,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,           nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home-_nb_patch+x, nbInd, _migr_rateOut, factor); // down
         _sendEmigrants(current_patch, home, home-1,           nbInd, _migr_rateIn, factor);  // left
@@ -655,7 +685,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,           nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home+x,           nbInd, _migr_rateIn, factor);  // down
         _sendEmigrants(current_patch, home, home+x-1,         nbInd, _migr_rateOut, factor); // left
@@ -664,13 +694,10 @@ void LCE_Disperse::_disperse_2D_SS_edge_4Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_edge_8Neighbour
+// Disperser::_disperse_2D_SS_edge_8Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_edge_8Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch* current_patch;
     int nbInd[2];
     unsigned int x = _lattice_dims[0];
@@ -682,7 +709,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,             nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home+x+1,           nbInd, _migr_rateIn, factor);  // right down
         _sendEmigrants(current_patch, home, home+x,             nbInd, _migr_rateIn, factor);  // down
@@ -698,7 +725,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home-x+1,           nbInd, _migr_rateOut, factor); // right
         _sendEmigrants(current_patch, home, home+1,             nbInd, _migr_rateOut, factor); // right down
         _sendEmigrants(current_patch, home, home+x,             nbInd, _migr_rateIn, factor);  // down
@@ -714,7 +741,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,             nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home-_nb_patch+x+1, nbInd, _migr_rateOut, factor); // right down
         _sendEmigrants(current_patch, home, home-_nb_patch+x,   nbInd, _migr_rateOut, factor); // down
@@ -730,7 +757,7 @@ void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
         current_patch = _popPtr->getPatch(home);
         nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
         nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-        factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+        factor = (this->*get_disp_factor_funcPtr)(current_patch);
         _sendEmigrants(current_patch, home, home+1,             nbInd, _migr_rateIn, factor);  // right
         _sendEmigrants(current_patch, home, home+x+1,           nbInd, _migr_rateIn, factor);  // right down
         _sendEmigrants(current_patch, home, home+x,             nbInd, _migr_rateIn, factor);  // down
@@ -743,13 +770,10 @@ void LCE_Disperse::_disperse_2D_SS_edge_8Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_corner_4Neighbour
+// Disperser::_disperse_2D_SS_corner_4Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_corner_4Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch* current_patch;
     int nbInd[2];
     unsigned int x = _lattice_dims[0];
@@ -759,7 +783,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
     current_patch = _popPtr->getPatch(0);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, 0, 1,           nbInd, _migr_rateCorner, factor); // right
     _sendEmigrants(current_patch, 0, x,           nbInd, _migr_rateCorner, factor); // down
     _sendEmigrants(current_patch, 0, x-1,         nbInd, _migr_rateOut, factor);    // left
@@ -769,7 +793,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
     current_patch = _popPtr->getPatch(x-1);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, x-1, 0,           nbInd, _migr_rateOut, factor);    // right
     _sendEmigrants(current_patch, x-1, 2*x-1,       nbInd, _migr_rateCorner, factor); // down
     _sendEmigrants(current_patch, x-1, x-2,         nbInd, _migr_rateCorner, factor); // left
@@ -779,7 +803,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
     current_patch = _popPtr->getPatch(_nb_patch-x);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, _nb_patch-x, _nb_patch-x+1,   nbInd, _migr_rateCorner, factor); // right
     _sendEmigrants(current_patch, _nb_patch-x, 0,               nbInd, _migr_rateOut, factor);    // down
     _sendEmigrants(current_patch, _nb_patch-x, _nb_patch-1,     nbInd, _migr_rateOut, factor);    // left
@@ -789,7 +813,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
     current_patch = _popPtr->getPatch(_nb_patch-1);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, _nb_patch-1, _nb_patch-x,   nbInd, _migr_rateOut, factor);    // right
     _sendEmigrants(current_patch, _nb_patch-1, x-1,           nbInd, _migr_rateOut, factor);    // down
     _sendEmigrants(current_patch, _nb_patch-1, _nb_patch-2,   nbInd, _migr_rateCorner, factor); // left
@@ -797,13 +821,10 @@ void LCE_Disperse::_disperse_2D_SS_corner_4Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_disperse_2D_SS_corner_8Neighbour
+// Disperser::_disperse_2D_SS_corner_8Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
+void Disperser::_disperse_2D_SS_corner_8Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     Patch* current_patch;
     int nbInd[2];
     unsigned int x = _lattice_dims[0];
@@ -813,7 +834,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
     current_patch = _popPtr->getPatch(0);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, 0, 1,             nbInd, _migr_rateCorner, factor); // right
     _sendEmigrants(current_patch, 0, x+1,           nbInd, _migr_rateCorner, factor); // right down
     _sendEmigrants(current_patch, 0, x,             nbInd, _migr_rateCorner, factor); // down
@@ -827,7 +848,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
     current_patch = _popPtr->getPatch(x-1);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, x-1, 0,           nbInd, _migr_rateOut, factor);    // right
     _sendEmigrants(current_patch, x-1, x,           nbInd, _migr_rateOut, factor);    // right down
     _sendEmigrants(current_patch, x-1, 2*x-1,       nbInd, _migr_rateCorner, factor); // down
@@ -841,7 +862,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
     current_patch = _popPtr->getPatch(_nb_patch-x);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, _nb_patch-x, _nb_patch-x+1,     nbInd, _migr_rateCorner, factor); // right
     _sendEmigrants(current_patch, _nb_patch-x, 1,                 nbInd, _migr_rateOut, factor);    // right down
     _sendEmigrants(current_patch, _nb_patch-x, 0,                 nbInd, _migr_rateOut, factor);    // down
@@ -855,7 +876,7 @@ void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
     current_patch = _popPtr->getPatch(_nb_patch-1);
     nbInd[FEM] = current_patch->size(FEM,OFFSPRG);
     nbInd[MAL] = current_patch->size(MAL,OFFSPRG);
-    factor = (this->*get_disp_factor_funcPtr)(current_patch, coln);
+    factor = (this->*get_disp_factor_funcPtr)(current_patch);
     _sendEmigrants(current_patch, _nb_patch-1, _nb_patch-x,     nbInd, _migr_rateOut, factor);    // right
     _sendEmigrants(current_patch, _nb_patch-1, 0,               nbInd, _migr_rateOut, factor);    // right down
     _sendEmigrants(current_patch, _nb_patch-1, x-1,             nbInd, _migr_rateOut, factor);    // down
@@ -867,13 +888,10 @@ void LCE_Disperse::_disperse_2D_SS_corner_8Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_2D_stepping_stone_4Neighbour
+// Disperser::disperse_2D_stepping_stone_4Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::disperse_2D_stepping_stone_4Neighbour(bool coln)
+void Disperser::disperse_2D_stepping_stone_4Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     // perform migration
     _disperse_2D_SS_middle_4Neighbour();
     _disperse_2D_SS_edge_4Neighbour();
@@ -886,13 +904,10 @@ void LCE_Disperse::disperse_2D_stepping_stone_4Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::disperse_2D_stepping_stone_8Neighbour
+// Disperser::disperse_2D_stepping_stone_8Neighbour
 // -----------------------------------------------------------------------------
-void LCE_Disperse::disperse_2D_stepping_stone_8Neighbour(bool coln)
+void Disperser::disperse_2D_stepping_stone_8Neighbour()
 {
-    // TODO: support colonization
-    if( doColonization ) fatal("MALCOLM: doesn't support colonization yet...");
-
     // perform migration
     _disperse_2D_SS_middle_8Neighbour();
     _disperse_2D_SS_edge_8Neighbour();
@@ -905,107 +920,78 @@ void LCE_Disperse::disperse_2D_stepping_stone_8Neighbour(bool coln)
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::init
+// Disperser::init
 // -----------------------------------------------------------------------------
-bool LCE_Disperse::init (Metapop* popPtr)
+bool Disperser::init (Metapop* popPtr)
 {
-    LCE::init(popPtr);
-
-    // if only one patch is used there is simply no migration
+    _popPtr = popPtr;
     _nb_patch = popPtr->getPatchNbr();
-    if( _nb_patch == 1 ) {
-        doDispersal = &LCE_Disperse::disperse_zeroDispersal;
-        doColonization = NULL;
+
+    // if no dispersal type
+    if( _disp_type == DISP_NONE ) {
+        doDispersal = &Disperser::disperse_zeroDispersal;
         return true;
     }
-
-    // get parameters
-    _disp_model = (int)_paramSet->getValue("dispersal_model");
-    _disp_propagule_prob = _paramSet->getValue("dispersal_propagule_prob");
-    _border_model = (int)_paramSet->getValue("dispersal_border_model");
-    _lattice_range = (int)_paramSet->getValue("dispersal_lattice_range");
-    _coln_model = (int)_paramSet->getValue("colonization_model");
-    _coln_propagule_prob = _paramSet->getValue("colonization_propagule_prob");
-    _coln_border_model = (int)_paramSet->getValue("colonization_border_model");
-    _coln_lattice_range = (int)_paramSet->getValue(
-            "colonization_lattice_range");
 
     //reset matrixes
     if( _dispMatrix[FEM] ) {delete _dispMatrix[FEM]; _dispMatrix[FEM]=NULL;}
     if( _dispMatrix[MAL] ) {delete _dispMatrix[MAL]; _dispMatrix[MAL]=NULL;}
-    if( _colnMatrix[FEM] ) {delete _colnMatrix[FEM]; _colnMatrix[FEM]=NULL;}
-    if( _colnMatrix[MAL] ) {delete _colnMatrix[MAL]; _colnMatrix[MAL]=NULL;}
+
+    // get parameters
+    if( _disp_type & DISP_MIGR ) {
+        _disp_model = (int)_paramSet->getValue("dispersal_model");
+        _disp_propagule_prob = _paramSet->getValue("dispersal_propagule_prob");
+        _border_model = (int)_paramSet->getValue("dispersal_border_model");
+        _lattice_range = (int)_paramSet->getValue("dispersal_lattice_range");
+    } else {
+        _disp_model = (int)_paramSet->getValue("colonization_model");
+        _disp_propagule_prob =
+            _paramSet->getValue("colonization_propagule_prob");
+        _border_model = (int)_paramSet->getValue("colonization_border_model");
+        _lattice_range = (int)_paramSet->getValue("colonization_lattice_range");
+    }
 
     // migration is set by matrixes
-    if( (_paramSet->isSet("dispersal_rate")
-                || _paramSet->isSet("dispersal_rate_fem")
-                || _paramSet->isSet("dispersal_rate_mal"))
-            && (_paramSet->isMatrix("dispersal_rate")
-                || _paramSet->isMatrix("dispersal_rate_fem")
-                || _paramSet->isMatrix("dispersal_rate_mal")) )
+    if( ((_disp_type & DISP_MIGR) && 
+                ( (_paramSet->isSet("dispersal_rate")
+                   || _paramSet->isSet("dispersal_rate_fem")
+                   || _paramSet->isSet("dispersal_rate_mal"))
+                  && (_paramSet->isMatrix("dispersal_rate")
+                      || _paramSet->isMatrix("dispersal_rate_fem")
+                      || _paramSet->isMatrix("dispersal_rate_mal")) ) )
+            || ((_disp_type & DISP_COLN) &&
+                ( (_paramSet->isSet("colonization_rate")
+                   || _paramSet->isSet("colonization_rate_fem")
+                   || _paramSet->isSet("colonization_rate_mal"))
+                  && (_paramSet->isMatrix("colonization_rate")
+                      || _paramSet->isMatrix("colonization_rate_fem")
+                      || _paramSet->isMatrix("colonization_rate_mal")) ) ) )
     {
         setDispersalMatrix();
     } else { // migration is set by a single dispersal rate (or default)
         // if it is a 2D stepping stone model
-        if( _disp_model == 3 ) _get_lattice_dims(false);
-        setDispersalRate(false);
+        if( _disp_model == 3 ) _get_lattice_dims();
+        setDispersalRate();
     }
-    _setDispersalFactor(false);
+    _setDispersalFactor();
 
-    // check whether any colonization parameters have been set
-    if( _paramSet->isSet("colonization_model") ||
-            _paramSet->isSet("colonization_border_model") ||
-            _paramSet->isSet("colonization_lattice_range") ||
-            _paramSet->isSet("colonization_lattice_dims") ||
-            _paramSet->isSet("colonization_propagule_prob") ||
-            _paramSet->isSet("colonization_rate") ||
-            _paramSet->isSet("colonization_rate_fem") ||
-            _paramSet->isSet("colonization_rate_mal") ||
-            _paramSet->isSet("colonization_k_threshold") ||
-            _paramSet->isSet("colonization_k_min") ||
-            _paramSet->isSet("colonization_k_max") ||
-            _paramSet->isSet("colonization_k_max_growth") ||
-            _paramSet->isSet("colonization_k_growth_rate") ||
-            _paramSet->isSet("colonization_k_symmetry") )
-    {
-        // colonization is separate from migration
-        if( (_paramSet->isSet("colonization_rate")
-                    || _paramSet->isSet("colonization_rate_fem")
-                    || _paramSet->isSet("colonization_rate_mal"))
-                && (_paramSet->isMatrix("colonization_rate")
-                    || _paramSet->isMatrix("colonization_rate_fem")
-                    || _paramSet->isMatrix("colonization_rate_mal")) )
-        {
-            // colonization is set by matrixes
-            setDispersalMatrix(true);
-        } else {
-            // colonization is set by a single dispersal rate (or default)
-            // if it is a 2D stepping stone model
-            if( _coln_model == 3 ) _get_lattice_dims(true);
-            setDispersalRate(true);
-        }
-        _setDispersalFactor(true);
-    } else {
-        // colonization is the same as migration
-        doColonization = NULL;
-    }
     return true;
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::setDispersalFactor
+// Disperser::setDispersalFactor
 // -----------------------------------------------------------------------------
 /** set the genralized logistic function parameters
  * check if the function is really needed, i.e. if there is really a change
  */
-void LCE_Disperse::_setDispersalFactor(bool coln)
+void Disperser::_setDispersalFactor()
 {
-    if( !coln ) {
-        if(_disp_factor) {
-            delete[] _disp_factor; _disp_factor=NULL;
-        }
-        // get the values
-        _disp_factor = new double[5];
+    if(_disp_factor) {
+        delete[] _disp_factor; _disp_factor=NULL;
+    }
+    // get the values
+    _disp_factor = new double[5];
+    if( _disp_type & DISP_MIGR ) {
         _disp_factor[0] = _paramSet->getValue("dispersal_k_min");
         _disp_factor[1] = _paramSet->getValue("dispersal_k_max");
         _disp_factor[2] = _paramSet->getValue("dispersal_k_max_growth");
@@ -1014,515 +1000,306 @@ void LCE_Disperse::_setDispersalFactor(bool coln)
         if(!_disp_factor) {
             fatal("Parameter 'dispersal_k_symmetry' cannot be zero!\n");
         }
-        // if the growth rate is too large/small, the logsitic function has a
-        // size problem (exp) change to threshold function
-        if( abs(_disp_factor[3]) >= STRING::str2int<double>(
-                    _paramSet->get_param("dispersal_k_growth_rate")->
-                    get_default_arg()))
-        {
-            if(_disp_factor[3]<0) { // swap min and max if slope is negative
-                double temp = _disp_factor[0];
-                _disp_factor[0] = _disp_factor[1];
-                _disp_factor[1] = temp;
-            }
-            if(_disp_factor[2]<0) { // where is the threshold?
-                if(abs(_disp_factor[1]-1)<1e-6) {
-                    get_disp_factor_funcPtr =
-                        &LCE_Disperse::get_disp_factor_one;
-                    return;
-                } else {
-                    get_disp_factor_funcPtr =
-                        &LCE_Disperse::get_disp_factor_max;
-                    return;
-                }
-            }
-            get_disp_factor_funcPtr =
-                &LCE_Disperse::get_disp_factor_k_threshold;
-            return;
-        }
-        // test if there is a change between 0 and 10 (populations may exceed
-        // K...)
-        double ten = generalLogisticCurve(10,_disp_factor[0],_disp_factor[1],
-                _disp_factor[2],_disp_factor[3],_disp_factor[4]);
-        double zero = generalLogisticCurve(0, _disp_factor[0],_disp_factor[1],
-                _disp_factor[2],_disp_factor[3],_disp_factor[4]);
-        if(abs(ten-zero)<1e-6) { // factor not influenced by pop density
-            if(abs(ten-1)<1e-6) { // factor = 1
-                get_disp_factor_funcPtr = &LCE_Disperse::get_disp_factor_one;
-                return;
-            }
-            if(abs(ten-_disp_factor[0])<1e-6) { // factor = min
-                get_disp_factor_funcPtr = &LCE_Disperse::get_disp_factor_min;
-                return;
-            }
-            if(abs(ten-_disp_factor[1])<1e-6) { // factor = max
-                get_disp_factor_funcPtr = &LCE_Disperse::get_disp_factor_max;
-                return;
-            }
-        }
-        // use the full general logistic function
-        get_disp_factor_funcPtr = &LCE_Disperse::get_disp_factor_k_logistic;
     } else {
-        if(_coln_factor) {
-            delete[] _coln_factor; _coln_factor=NULL;
-        }
-        // get the values
-        _coln_factor = new double[5];
-        _coln_factor[0] = _paramSet->getValue("colonization_k_min");
-        _coln_factor[1] = _paramSet->getValue("colonization_k_max");
-        _coln_factor[2] = _paramSet->getValue("colonization_k_max_growth");
-        _coln_factor[3] = _paramSet->getValue("colonization_k_growth_rate");
-        _coln_factor[4] = _paramSet->getValue("colonization_k_symmetry");
-        if(!_coln_factor) {
+        _disp_factor[0] = _paramSet->getValue("colonization_k_min");
+        _disp_factor[1] = _paramSet->getValue("colonization_k_max");
+        _disp_factor[2] = _paramSet->getValue("colonization_k_max_growth");
+        _disp_factor[3] = _paramSet->getValue("colonization_k_growth_rate");
+        _disp_factor[4] = _paramSet->getValue("colonization_k_symmetry");
+        if(!_disp_factor) {
             fatal("Parameter 'colonization_k_symmetry' cannot be zero!\n");
         }
-        // if the growth rate is too large/small, the logsitic function has a
-        // size problem (exp) change to threshold function
-        if( abs(_coln_factor[3]) >= STRING::str2int<double>(
-                    _paramSet->get_param("colonization_k_growth_rate")->
-                    get_default_arg()))
-        {
-            if(_coln_factor[3]<0) { // swap min and max if slope is negative
-                double temp = _coln_factor[0];
-                _coln_factor[0] = _coln_factor[1];
-                _coln_factor[1] = temp;
+    }
+    // if the growth rate is too large/small, the logsitic function has a
+    // size problem (exp) change to threshold function
+    if( abs(_disp_factor[3]) >= STRING::str2int<double>(
+                _paramSet->get_param(
+                    (_disp_type & DISP_MIGR ) ?
+                    "dispersal_k_growth_rate" :
+                    "colonization_k_growth_rate"
+                    )->get_default_arg()) )
+    {
+        if(_disp_factor[3]<0) { // swap min and max if slope is negative
+            double temp = _disp_factor[0];
+            _disp_factor[0] = _disp_factor[1];
+            _disp_factor[1] = temp;
+        }
+        if(_disp_factor[2]<0) { // where is the threshold?
+            if(abs(_disp_factor[1]-1)<1e-6) {
+                get_disp_factor_funcPtr =
+                    &Disperser::get_disp_factor_one;
+                return;
+            } else {
+                get_disp_factor_funcPtr =
+                    &Disperser::get_disp_factor_max;
+                return;
             }
-            if(_coln_factor[2]<0) { // where is the threshold?
-                if(abs(_coln_factor[1]-1)<1e-6) {
-                    get_coln_factor_funcPtr =
-                        &LCE_Disperse::get_disp_factor_one;
-                    return;
-                } else {
-                    get_coln_factor_funcPtr =
-                        &LCE_Disperse::get_disp_factor_max;
-                    return;
-                }
-            }
-            get_coln_factor_funcPtr =
-                &LCE_Disperse::get_disp_factor_k_threshold;
+        }
+        get_disp_factor_funcPtr =
+            &Disperser::get_disp_factor_k_threshold;
+        return;
+    }
+    // test if there is a change between 0 and 10 (populations may exceed
+    // K...)
+    double ten = generalLogisticCurve(10,_disp_factor[0],_disp_factor[1],
+            _disp_factor[2],_disp_factor[3],_disp_factor[4]);
+    double zero = generalLogisticCurve(0, _disp_factor[0],_disp_factor[1],
+            _disp_factor[2],_disp_factor[3],_disp_factor[4]);
+    if(abs(ten-zero)<1e-6) { // factor not influenced by pop density
+        if(abs(ten-1)<1e-6) { // factor = 1
+            get_disp_factor_funcPtr = &Disperser::get_disp_factor_one;
             return;
         }
-        // test if there is a change between 0 and 10 (populations may exceed
-        // K...)
-        double ten = generalLogisticCurve(10,_coln_factor[0],_coln_factor[1],
-                _coln_factor[2],_coln_factor[3],_coln_factor[4]);
-        double zero = generalLogisticCurve(0, _coln_factor[0],_coln_factor[1],
-                _coln_factor[2],_coln_factor[3],_coln_factor[4]);
-        if(abs(ten-zero)<1e-6) { // factor not influenced by pop density
-            if(abs(ten-1)<1e-6) { // factor = 1
-                get_coln_factor_funcPtr = &LCE_Disperse::get_disp_factor_one;
-                return;
-            }
-            if(abs(ten-_coln_factor[0])<1e-6) { // factor = min
-                get_coln_factor_funcPtr = &LCE_Disperse::get_disp_factor_min;
-                return;
-            }
-            if(abs(ten-_coln_factor[1])<1e-6) { // factor = max
-                get_coln_factor_funcPtr = &LCE_Disperse::get_disp_factor_max;
-                return;
-            }
+        if(abs(ten-_disp_factor[0])<1e-6) { // factor = min
+            get_disp_factor_funcPtr = &Disperser::get_disp_factor_min;
+            return;
         }
-        // use the full general logistic function
-        get_coln_factor_funcPtr = &LCE_Disperse::get_disp_factor_k_logistic;
+        if(abs(ten-_disp_factor[1])<1e-6) { // factor = max
+            get_disp_factor_funcPtr = &Disperser::get_disp_factor_max;
+            return;
+        }
     }
+    // use the full general logistic function
+    get_disp_factor_funcPtr = &Disperser::get_disp_factor_k_logistic;
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::_get_lattice_dims
+// Disperser::_get_lattice_dims
 // -----------------------------------------------------------------------------
 /** get the dimensions of the 2D stepping stone matrix */
-void LCE_Disperse::_get_lattice_dims(bool coln)
+void Disperser::_get_lattice_dims()
 {
-    if( !coln ) {
-        if(_paramSet->isSet("dispersal_lattice_dims")) {
-            TMatrix* m =  _paramSet->getMatrix("dispersal_lattice_dims");
-            // check if the dimensions of the matrix are correct
-            if(m->get_dims(NULL) != 2) {
-                fatal("The parameter dispersal_lattice_dims should have a "
-                        "matrix with two values!\n");
-            }
-            // get the dimension of the lattice
-            _lattice_dims[0] = (unsigned int)m->get(0,0);
-            _lattice_dims[1] = (unsigned int)m->get(0,1);
-            if(_lattice_dims[0]*_lattice_dims[1] != _nb_patch) {
-                fatal("Parameter dispersal_lattice_dims: The dimension of the "
-                        "lattice (%ix%i) does not mach the number of patches "
-                        "(%i)!\n", _lattice_dims[0], _lattice_dims[1],
-                        _nb_patch);
-            }
-        } else {
-            // if the dimensions are not set, we assume that x=y
-            _lattice_dims[0] = _lattice_dims[1] = 
-                (unsigned int) sqrt((double)_nb_patch);
-            if(_lattice_dims[0]*_lattice_dims[1] != _nb_patch) {
-                fatal("Parameter dispersal_lattice_dims: The dimension of the "
-                        "lattice (%ix%i) does not mach the number of patches "
-                        "(%i)!\n", _lattice_dims[0], _lattice_dims[1],
-                        _nb_patch);
-            }
+    if( _disp_type & DISP_MIGR ?  _paramSet->isSet("dispersal_lattice_dims") :
+            _paramSet->isSet("colonization_lattice_dims") )
+    {
+        TMatrix* m = (_disp_type & DISP_MIGR ?
+                _paramSet->getMatrix("dispersal_lattice_dims") :
+                _paramSet->getMatrix("colonization_lattice_dims"));
+        // check if the dimensions of the matrix are correct
+        if(m->get_dims(NULL) != 2) {
+            fatal(_disp_type & DISP_MIGR ? 
+                    "The parameter dispersal_lattice_dims should have a "
+                    "matrix with two values!\n" :
+                    "The parameter colonization_lattice_dims should have a "
+                    "matrix with two values!\n");
         }
-        // check if it is realy a 2D and not a 1D lattice
-        if(_lattice_dims[0] == 1 || _lattice_dims[1]==1) {
-            _disp_model = 2; // use a 1D stepping stone model
+        // get the dimension of the lattice
+        _lattice_dims[0] = (unsigned int)m->get(0,0);
+        _lattice_dims[1] = (unsigned int)m->get(0,1);
+        if(_lattice_dims[0]*_lattice_dims[1] != _nb_patch) {
+            if( _disp_type & DISP_MIGR ) {
+                fatal("Parameter dispersal_lattice_dims: The dimension of the "
+                        "lattice (%ix%i) does not mach the number of patches "
+                        "(%i)!\n", _lattice_dims[0], _lattice_dims[1],
+                        _nb_patch);
+            } else {
+                fatal("Parameter colonization_lattice_dims: The dimension of "
+                        "the lattice (%ix%i) does not mach the number of "
+                        "patches (%i)!\n", _lattice_dims[0], _lattice_dims[1],
+                        _nb_patch);
+            }
         }
     } else {
-        if(_paramSet->isSet("colonization_lattice_dims")) {
-            TMatrix* m =  _paramSet->getMatrix("colonization_lattice_dims");
-            // check if the dimensions of the matrix are correct
-            if(m->get_dims(NULL) != 2) {
-                fatal("The parameter colonization_lattice_dims should have a "
-                        "matrix with two values!\n");
-            }
-            // get the dimension of the lattice
-            _coln_lattice_dims[0] = (unsigned int)m->get(0,0);
-            _coln_lattice_dims[1] = (unsigned int)m->get(0,1);
-            if(_coln_lattice_dims[0]*_coln_lattice_dims[1] != _nb_patch) {
+        // if the dimensions are not set, we assume that x=y
+        _lattice_dims[0] = _lattice_dims[1] = 
+            (unsigned int) sqrt((double)_nb_patch);
+        if(_lattice_dims[0]*_lattice_dims[1] != _nb_patch) {
+            if( _disp_type & DISP_MIGR ) {
+                fatal("Parameter dispersal_lattice_dims: The dimension of the "
+                        "lattice (%ix%i) does not mach the number of patches "
+                        "(%i)!\n", _lattice_dims[0], _lattice_dims[1],
+                        _nb_patch);
+            } else {
                 fatal("Parameter colonization_lattice_dims: The dimension of "
                         "the lattice (%ix%i) does not mach the number of "
-                        "patches (%i)!\n", _coln_lattice_dims[0],
-                        _coln_lattice_dims[1], _nb_patch);
-            }
-        } else {
-            // if the dimensions are not set, we assume that x=y
-            _coln_lattice_dims[0] = _coln_lattice_dims[1] = 
-                (unsigned int) sqrt((double)_nb_patch);
-            if(_coln_lattice_dims[0]*_coln_lattice_dims[1] != _nb_patch) {
-                fatal("Parameter colonization_lattice_dims: The dimension of "
-                        "the lattice (%ix%i) does not mach the number of "
-                        "patches (%i)!\n", _coln_lattice_dims[0],
-                        _coln_lattice_dims[1], _nb_patch);
+                        "patches (%i)!\n", _lattice_dims[0], _lattice_dims[1],
+                        _nb_patch);
             }
         }
-        // check if it is realy a 2D and not a 1D lattice
-        if(_coln_lattice_dims[0] == 1 || _coln_lattice_dims[1]==1) {
-            _coln_model = 2; // use a 1D stepping stone model
-        }
+    }
+    // check if it is realy a 2D and not a 1D lattice
+    if(_lattice_dims[0] == 1 || _lattice_dims[1]==1) {
+        _disp_model = 2; // use a 1D stepping stone model
     }
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::setDispersalMatrix
+// Disperser::setDispersalMatrix
 // -----------------------------------------------------------------------------
 /** dispersal is set by a dispersal matrix
  * sex specific matrixes have precendence
  * if only one sex specific matrix is set, an error is drawn
  */
-void LCE_Disperse::setDispersalMatrix(bool coln)
+void Disperser::setDispersalMatrix()
 {
-    if( !coln ) {
-        // set the migration amtrix
-        if(_paramSet->isSet("dispersal_rate_fem")) {
-            if(_paramSet->isSet("dispersal_rate_fem") &&
-                    _paramSet->isSet("dispersal_rate_mal"))
-            {
-                setDispMatrix(FEM, _paramSet->getMatrix("dispersal_rate_fem"),
-                        coln);
-                setDispMatrix(MAL, _paramSet->getMatrix("dispersal_rate_mal"),
-                        coln);
-            } else {
-                fatal("Only one sex specific migration matrix is specified: "
-                        "both are required!\n");
-            }
+    // set the dispersal matrix
+    if(_paramSet->isSet(_disp_type & DISP_MIGR ? "dispersal_rate_fem" :
+                "colonization_rate_fem")) {
+        if(_paramSet->isSet(_disp_type & DISP_MIGR ? "dispersal_rate_fem" :
+                    "colonization_rate_fem") &&
+                _paramSet->isSet(_disp_type & DISP_MIGR ? "dispersal_rate_mal" :
+                    "colonization_rate_mal"))
+        {
+            setDispMatrix(FEM, _paramSet->getMatrix(_disp_type & DISP_MIGR ?
+                        "dispersal_rate_fem" : "colonization_rate_fem"));
+            setDispMatrix(MAL, _paramSet->getMatrix(_disp_type & DISP_MIGR ?
+                        "dispersal_rate_mal" : "colonization_rate_mal"));
         } else {
-            // general dispersal matrix
-            setDispMatrix(_paramSet->getMatrix("dispersal_rate"), coln);
+            fatal(_disp_type & DISP_MIGR ?
+                    "Only one sex specific migration matrix is specified: "
+                    "both are required!\n" :
+                    "Only one sex specific colonization matrix is specified: "
+                    "both are required!\n");
         }
-        // function pointer to the dispersal function
-        doDispersal = &LCE_Disperse::dispersal_matrix;
     } else {
-        // set the colonization matrix
-        if(_paramSet->isSet("colonization_rate_fem")) {
-            if(_paramSet->isSet("colonization_rate_fem") &&
-                    _paramSet->isSet("colonization_rate_mal"))
-            {
-                setDispMatrix(FEM, _paramSet->getMatrix(
-                            "colonization_rate_fem"), coln);
-                setDispMatrix(MAL, _paramSet->getMatrix(
-                            "colonization_rate_mal"), coln);
-            } else {
-                fatal("Only one sex specific colonization matrix is specified: "
-                        "both are required!\n");
-            }
-        } else {
-            // general dispersal matrix
-            setDispMatrix(_paramSet->getMatrix("colonization_rate"), coln);
-        }
-        // function pointer to the colonization function
-        doColonization = &LCE_Disperse::dispersal_matrix;
+        // general dispersal matrix
+        setDispMatrix(_paramSet->getMatrix(_disp_type & DISP_MIGR ?
+                    "dispersal_rate" : "colonization_rate"));
     }
+    // function pointer to the dispersal function
+    doDispersal = &Disperser::dispersal_matrix;
 }
 
 // -----------------------------------------------------------------------------
-// LCE_Disperse::setDispersalRate
+// Disperser::setDispersalRate
 // -----------------------------------------------------------------------------
 /** dispersal is set by a dispersal rate
  * sex specific rates have precendence
  * if only one sex specific rate is set, an error is drawn
  */
-void LCE_Disperse::setDispersalRate(bool coln)
+void Disperser::setDispersalRate()
 {
-    if( !coln ) {
-        if(_paramSet->isSet("dispersal_rate_fem")) {
-            if(_paramSet->isSet("dispersal_rate_fem")
-                    && _paramSet->isSet("dispersal_rate_mal"))
-            {
-                _migr_rate[FEM] = _paramSet->getValue("dispersal_rate_fem");
-                _migr_rate[MAL] = _paramSet->getValue("dispersal_rate_mal");
-            } else {
-                fatal("Only one sex specific migration rate is specified: "
-                        "both are required!\n");
-            }
+    if(_paramSet->isSet(_disp_type & DISP_MIGR ? "dispersal_rate_fem" :
+                "colonization_rate_fem"))
+    {
+        if(_paramSet->isSet(_disp_type & DISP_MIGR ? "dispersal_rate_fem" :
+                    "colonization_rate_fem")
+                && _paramSet->isSet(_disp_type & DISP_MIGR ?
+                    "dispersal_rate_mal" : "colonization_rate_mal"))
+        {
+            _migr_rate[FEM] = _paramSet->getValue(_disp_type & DISP_MIGR ?
+                    "dispersal_rate_fem" : "colonization_rate_fem");
+            _migr_rate[MAL] = _paramSet->getValue(_disp_type & DISP_MIGR ?
+                    "dispersal_rate_mal" : "colonization_rate_mal");
         } else {
-            // general dispersal rate
-            _migr_rate[FEM] = _migr_rate[MAL] = 
-                _paramSet->getValue("dispersal_rate");
-        }
-        // if there is no migration
-        if(!_migr_rate[MAL] && !_migr_rate[FEM]) {
-            doDispersal = &LCE_Disperse::disperse_zeroDispersal;
-            return;
-        }
-        switch (_disp_model) {
-            case 0: // island migration model
-                _migr_rate[FEM] /= _nb_patch-1;
-                _migr_rate[MAL] /= _nb_patch-1;
-                doDispersal = &LCE_Disperse::disperse_island;
-                break;
-            case 1: // island migration model with propagule pool
-                // if there are only two populations use the island simple model
-                if(_nb_patch == 2) {
-                    _disp_model = 0;
-                    warning("With only 2 populations it is not possible to "
-                            "run a propagule dispersal model: the island "
-                            "model is used!\n");
-                    return setDispersalRate(coln);
-                }
-                _migr_rate_propagule[FEM] = 
-                    _migr_rate[FEM] * _disp_propagule_prob;
-                _migr_rate_propagule[MAL] = 
-                    _migr_rate[MAL] * _disp_propagule_prob;
-                _migr_rate[FEM] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
-                _migr_rate[MAL] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
-                doDispersal = &LCE_Disperse::disperse_island_propagule;
-                break;
-            case 2: // 1D steppings stone model
-                int factorIn, factorOut;
-                doDispersal = &LCE_Disperse::disperse_1D_stepping_stone;
-                // edge effect
-                switch(_border_model) {
-                    default:
-                    case 0: // circle
-                        factorIn = 2; factorOut = 2;
-                        break;
-                    case 1: // reflecting
-                        factorIn = 1; factorOut = 0;
-                        break;
-                    case 2: // absorbing
-                        // negative number means removing individuals
-                        factorIn = 2; factorOut = -2;
-                        break;
-                }
-                _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn;
-                _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn;
-                _migr_rateOut[FEM] = factorOut ? _migr_rate[FEM]/factorOut : 0;
-                _migr_rateOut[MAL] = factorOut ? _migr_rate[MAL]/factorOut : 0;
-                _migr_rate[FEM] /= 2;
-                _migr_rate[MAL] /= 2;
-                break;
-            case 3: // 2D stepping stone
-                int factorIn4, factorOut4, factorInCorner4;
-                int factorIn8, factorOut8, factorInCorner8;
-                // edge effect
-                switch(_border_model) {
-                    default:
-                    case 0: // torus
-                        factorIn4  = 4; factorIn8  = 8;
-                        factorOut4 = 4; factorOut8 = 8;
-                        factorInCorner4 = 4; factorInCorner8 = 8;
-                        break;
-                    case 1: // reflecting
-                        factorIn4  = 3; factorIn8  = 5;
-                        factorOut4 = 0; factorOut8 = 0;
-                        factorInCorner4 = 2; factorInCorner8 = 3;
-                        break;
-                    case 2: // absorbing
-                        factorIn4  = 4; factorIn8  = 8;
-                        // negative number means removing individuals
-                        factorOut4 = -4; factorOut8 = -8;
-                        factorInCorner4 = 4; factorInCorner8 = 8;
-                        break;
-                }
-                // number of neighbours
-                if(_lattice_range==0) { // 4 neighbours
-                    doDispersal = 
-                        &LCE_Disperse::disperse_2D_stepping_stone_4Neighbour;
-                    _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn4;
-                    _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn4;
-                    _migr_rateOut[FEM] = 
-                        factorOut4 ? _migr_rate[FEM]/factorOut4 : 0;
-                    _migr_rateOut[MAL] = 
-                        factorOut4 ? _migr_rate[MAL]/factorOut4 : 0;
-                    _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner4;
-                    _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner4;
-                    _migr_rate[FEM] /= 4;
-                    _migr_rate[MAL] /= 4;
-                } else { // 8 neighbours
-                    doDispersal = 
-                        &LCE_Disperse::disperse_2D_stepping_stone_8Neighbour;
-                    _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn8;
-                    _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn8;
-                    _migr_rateOut[FEM] =
-                        factorOut8 ? _migr_rate[FEM]/factorOut8 : 0;
-                    _migr_rateOut[MAL] =
-                        factorOut8 ? _migr_rate[MAL]/factorOut8 : 0;
-                    _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner8;
-                    _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner8;
-                    _migr_rate[FEM] /= 8;
-                    _migr_rate[MAL] /= 8;
-                }
-
-                break;
-            default:
-                fatal("\nDispersal model '%i' not available!\n",_disp_model);
+            fatal(_disp_type & DISP_MIGR ?
+                    "Only one sex specific migration rate is specified: "
+                    "both are required!\n" :
+                    "Only one sex specific colonization rate is specified: "
+                    "both are required!\n");
         }
     } else {
-        if(_paramSet->isSet("colonization_rate_fem")) {
-            if(_paramSet->isSet("colonization_rate_fem")
-                    && _paramSet->isSet("colonization_rate_mal"))
-            {
-                _coln_rate[FEM] = _paramSet->getValue("colonization_rate_fem");
-                _coln_rate[MAL] = _paramSet->getValue("colonization_rate_mal");
-            } else {
-                fatal("Only one sex specific colonization rate is specified: "
-                        "both are required!\n");
-            }
-        } else {
-            // general dispersal rate
-            _coln_rate[FEM] = _coln_rate[MAL] = 
-                _paramSet->getValue("colonization_rate");
-        }
-        // if there is no migration
-        if(!_coln_rate[MAL] && !_coln_rate[FEM]) {
-            doColonization = &LCE_Disperse::disperse_zeroDispersal;
-            return;
-        }
-        switch (_coln_model) {
-            case 0: // island colonization model
-                _coln_rate[FEM] /= _nb_patch-1;
-                _coln_rate[MAL] /= _nb_patch-1;
-                doColonization = &LCE_Disperse::disperse_island;
-                break;
-            case 1: // island colonization model with propagule pool
-                // if there are only two populations use the island simple model
-                if(_nb_patch == 2) {
-                    _coln_model = 0;
-                    warning("With only 2 populations it is not possible to "
-                            "run a propagule colonization model: the island "
-                            "model is used!\n");
-                    return setDispersalRate(coln);
-                }
-                _coln_rate_propagule[FEM] = 
-                    _coln_rate[FEM] * _coln_propagule_prob;
-                _coln_rate_propagule[MAL] = 
-                    _coln_rate[MAL] * _coln_propagule_prob;
-                _coln_rate[FEM] *= (1.0-_coln_propagule_prob)/(_nb_patch-2);
-                _coln_rate[MAL] *= (1.0-_coln_propagule_prob)/(_nb_patch-2);
-                doColonization = &LCE_Disperse::disperse_island_propagule;
-                break;
-            case 2: // 1D steppings stone model
-                int factorIn, factorOut;
-                doColonization = &LCE_Disperse::disperse_1D_stepping_stone;
-                // edge effect
-                switch(_coln_border_model) {
-                    default:
-                    case 0: // circle
-                        factorIn = 2; factorOut = 2;
-                        break;
-                    case 1: // reflecting
-                        factorIn = 1; factorOut = 0;
-                        break;
-                    case 2: // absorbing
-                        // negative number means removing individuals
-                        factorIn = 2; factorOut = -2;
-                        break;
-                }
-                _coln_rateIn[FEM] = _coln_rate[FEM]/factorIn;
-                _coln_rateIn[MAL] = _coln_rate[MAL]/factorIn;
-                _coln_rateOut[FEM] = factorOut ? _coln_rate[FEM]/factorOut : 0;
-                _coln_rateOut[MAL] = factorOut ? _coln_rate[MAL]/factorOut : 0;
-                _coln_rate[FEM] /= 2;
-                _coln_rate[MAL] /= 2;
-                break;
-            case 3: // 2D stepping stone
-                int factorIn4, factorOut4, factorInCorner4;
-                int factorIn8, factorOut8, factorInCorner8;
-                // edge effect
-                switch(_coln_border_model) {
-                    default:
-                    case 0: // torus
-                        factorIn4  = 4; factorIn8  = 8;
-                        factorOut4 = 4; factorOut8 = 8;
-                        factorInCorner4 = 4; factorInCorner8 = 8;
-                        break;
-                    case 1: // reflecting
-                        factorIn4  = 3; factorIn8  = 5;
-                        factorOut4 = 0; factorOut8 = 0;
-                        factorInCorner4 = 2; factorInCorner8 = 3;
-                        break;
-                    case 2: // absorbing
-                        factorIn4  = 4; factorIn8  = 8;
-                        // negative number means removing individuals
-                        factorOut4 = -4; factorOut8 = -8;
-                        factorInCorner4 = 4; factorInCorner8 = 8;
-                        break;
-                }
-                // number of neighbours
-                if(_coln_lattice_range==0) { // 4 neighbours
-                    doColonization = 
-                        &LCE_Disperse::disperse_2D_stepping_stone_4Neighbour;
-                    _coln_rateIn[FEM] = _coln_rate[FEM]/factorIn4;
-                    _coln_rateIn[MAL] = _coln_rate[MAL]/factorIn4;
-                    _coln_rateOut[FEM] = 
-                        factorOut4 ? _coln_rate[FEM]/factorOut4 : 0;
-                    _coln_rateOut[MAL] = 
-                        factorOut4 ? _coln_rate[MAL]/factorOut4 : 0;
-                    _coln_rateCorner[FEM] = _coln_rate[FEM]/factorInCorner4;
-                    _coln_rateCorner[MAL] = _coln_rate[MAL]/factorInCorner4;
-                    _coln_rate[FEM] /= 4;
-                    _coln_rate[MAL] /= 4;
-                } else { // 8 neighbours
-                    doColonization = 
-                        &LCE_Disperse::disperse_2D_stepping_stone_8Neighbour;
-                    _coln_rateIn[FEM] = _coln_rate[FEM]/factorIn8;
-                    _coln_rateIn[MAL] = _coln_rate[MAL]/factorIn8;
-                    _coln_rateOut[FEM] =
-                        factorOut8 ? _coln_rate[FEM]/factorOut8 : 0;
-                    _coln_rateOut[MAL] =
-                        factorOut8 ? _coln_rate[MAL]/factorOut8 : 0;
-                    _coln_rateCorner[FEM] = _coln_rate[FEM]/factorInCorner8;
-                    _coln_rateCorner[MAL] = _coln_rate[MAL]/factorInCorner8;
-                    _coln_rate[FEM] /= 8;
-                    _coln_rate[MAL] /= 8;
-                }
-
-                break;
-            default:
-                fatal("\nColonization model '%i' not available!\n",_coln_model);
-        }
+        // general dispersal rate
+        _migr_rate[FEM] = _migr_rate[MAL] = 
+            _paramSet->getValue(_disp_type & DISP_MIGR ? "dispersal_rate": 
+                    "colonization_rate");
     }
-}
+    // if there is no migration
+    if(!_migr_rate[MAL] && !_migr_rate[FEM]) {
+        doDispersal = &Disperser::disperse_zeroDispersal;
+        return;
+    }
+    switch (_disp_model) {
+        case 0: // island migration model
+            _migr_rate[FEM] /= _nb_patch-1;
+            _migr_rate[MAL] /= _nb_patch-1;
+            doDispersal = &Disperser::disperse_island;
+            break;
+        case 1: // island migration model with propagule pool
+            // if there are only two populations use the island simple model
+            if(_nb_patch == 2) {
+                _disp_model = 0;
+                warning("With only 2 populations it is not possible to "
+                        "run a propagule dispersal model: the island "
+                        "model is used!\n");
+                return setDispersalRate();
+            }
+            _migr_rate_propagule[FEM] = 
+                _migr_rate[FEM] * _disp_propagule_prob;
+            _migr_rate_propagule[MAL] = 
+                _migr_rate[MAL] * _disp_propagule_prob;
+            _migr_rate[FEM] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
+            _migr_rate[MAL] *= (1.0-_disp_propagule_prob)/(_nb_patch-2);
+            doDispersal = &Disperser::disperse_island_propagule;
+            break;
+        case 2: // 1D steppings stone model
+            int factorIn, factorOut;
+            doDispersal = &Disperser::disperse_1D_stepping_stone;
+            // edge effect
+            switch(_border_model) {
+                default:
+                case 0: // circle
+                    factorIn = 2; factorOut = 2;
+                    break;
+                case 1: // reflecting
+                    factorIn = 1; factorOut = 0;
+                    break;
+                case 2: // absorbing
+                    // negative number means removing individuals
+                    factorIn = 2; factorOut = -2;
+                    break;
+            }
+            _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn;
+            _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn;
+            _migr_rateOut[FEM] = factorOut ? _migr_rate[FEM]/factorOut : 0;
+            _migr_rateOut[MAL] = factorOut ? _migr_rate[MAL]/factorOut : 0;
+            _migr_rate[FEM] /= 2;
+            _migr_rate[MAL] /= 2;
+            break;
+        case 3: // 2D stepping stone
+            int factorIn4, factorOut4, factorInCorner4;
+            int factorIn8, factorOut8, factorInCorner8;
+            // edge effect
+            switch(_border_model) {
+                default:
+                case 0: // torus
+                    factorIn4  = 4; factorIn8  = 8;
+                    factorOut4 = 4; factorOut8 = 8;
+                    factorInCorner4 = 4; factorInCorner8 = 8;
+                    break;
+                case 1: // reflecting
+                    factorIn4  = 3; factorIn8  = 5;
+                    factorOut4 = 0; factorOut8 = 0;
+                    factorInCorner4 = 2; factorInCorner8 = 3;
+                    break;
+                case 2: // absorbing
+                    factorIn4  = 4; factorIn8  = 8;
+                    // negative number means removing individuals
+                    factorOut4 = -4; factorOut8 = -8;
+                    factorInCorner4 = 4; factorInCorner8 = 8;
+                    break;
+            }
+            // number of neighbours
+            if(_lattice_range==0) { // 4 neighbours
+                doDispersal = 
+                    &Disperser::disperse_2D_stepping_stone_4Neighbour;
+                _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn4;
+                _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn4;
+                _migr_rateOut[FEM] = 
+                    factorOut4 ? _migr_rate[FEM]/factorOut4 : 0;
+                _migr_rateOut[MAL] = 
+                    factorOut4 ? _migr_rate[MAL]/factorOut4 : 0;
+                _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner4;
+                _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner4;
+                _migr_rate[FEM] /= 4;
+                _migr_rate[MAL] /= 4;
+            } else { // 8 neighbours
+                doDispersal = 
+                    &Disperser::disperse_2D_stepping_stone_8Neighbour;
+                _migr_rateIn[FEM] = _migr_rate[FEM]/factorIn8;
+                _migr_rateIn[MAL] = _migr_rate[MAL]/factorIn8;
+                _migr_rateOut[FEM] =
+                    factorOut8 ? _migr_rate[FEM]/factorOut8 : 0;
+                _migr_rateOut[MAL] =
+                    factorOut8 ? _migr_rate[MAL]/factorOut8 : 0;
+                _migr_rateCorner[FEM] = _migr_rate[FEM]/factorInCorner8;
+                _migr_rateCorner[MAL] = _migr_rate[MAL]/factorInCorner8;
+                _migr_rate[FEM] /= 8;
+                _migr_rate[MAL] /= 8;
+            }
 
-//-----------------------------------------------------------------------------
-// LCE_Disperse::executeBeforeEachGeneration
-//-----------------------------------------------------------------------------
-void LCE_Disperse::executeBeforeEachGeneration(const int& gen)
-{
-    // temporal parameters
-    map<string, Param*>* pParam = _paramSet->getTemporalParams(gen);
-
-    // if it is a temporal paramter
-    if(pParam) {
-        // check if a change has to be made
-        if(_paramSet->updateTemporalParams(gen)) init(_popPtr);
+            break;
+        default:
+            fatal("\nDispersal model '%i' not available!\n",_disp_model);
     }
 }

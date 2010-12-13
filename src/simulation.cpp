@@ -265,8 +265,8 @@ void SimRunner::print_info(){
 	message("\n  Metapopulation:");
 	message("\n    %i populations", _thePop->getPatchNbr());
 	message("\n    Migration model: %s", _thePop->get_pDisperse_LCE()->get_disp_model_str().c_str());
-        if( _thePop->get_pDisperse_LCE()->doColonization ) {
-            message("\n    Colonization model: %s", _thePop->get_pDisperse_LCE()->get_disp_model_str(true).c_str());
+        if( _thePop->get_pDisperse_LCE()->isSet_colonizer() ) {
+            message("\n    Colonization model: %s", _thePop->get_pDisperse_LCE()->get_coln_model_str().c_str());
         }
 	message("\n    Mating system: %s", _thePop->get_pBreed_LCE()->getMatingSystem_str().c_str());
 

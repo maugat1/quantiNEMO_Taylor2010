@@ -437,7 +437,6 @@ bool TTNeutralSH::setStatRecorders(const string& t)
     else if(set_stat_fstat          (t, "n", "ntrl")){}     // adults and offspring
     else if(set_stat_all_freq_local (t, "n", "ntrl")){}     // adults and offspring
     else if(set_stat_all_freq_global(t, "n", "ntrl")){}     // adults and offspring
-    else if(set_stat_inbreeding     (t, "q", "quanti")){}     // adults and offspring
     else return false;
 
     return true;
