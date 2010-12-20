@@ -9,14 +9,14 @@ VERBOSE=1
 # clear the results
 COMMAND="rm"
 OPTIONS="-fr"
-$COMMAND $OPTIONS "$OUTDIR"
+#$COMMAND $OPTIONS "$OUTDIR"
 
 # run quantiNEMO
 if [ "$VERBOSE" -gt 0 ]; then echo "<< running quantiNemo >>"; fi
 PARAMFILE="zhou.ini"
 COMMAND="./quantiNemo"
 OPTIONS=""
-$COMMAND $OPTIONS "$PARAMFILE"
+#$COMMAND $OPTIONS "$PARAMFILE"
 
 # process the phenotype files
 if [ "$VERBOSE" -gt 0 ]; then echo "<< processing phenotypes >>"; fi
@@ -25,6 +25,7 @@ OPTIONS="--types= --patch --no-age --no-sex --mother --father --fitness"
 OUTFILE_PHEN="$OUTDIR/ind_phen.csv"
 FIRST=1
 for PHENFILE in "$OUTDIR"/phenotypes/*.phe; do
+    continue
     # get the replication and generation from the file name
     GENREP=$(echo $(basename "$PHENFILE") | \
         sed 's/^simulation_\(.*\)\.phe$/\1/')
@@ -53,6 +54,7 @@ OPTIONS="--no-patch --no-age --no-sex --no-mother --no-father --no-fitness"
 OUTFILE_MARK="$OUTDIR/ind_mark.csv"
 FIRST=1
 for MARKFILE in "$OUTDIR"/markers/*.dat; do
+    continue
     # get the replication and generation from the file name
     GENREP=$(echo $(basename "$MARKFILE") | \
         sed 's/^simulation_\(.*\)\.dat$/\1/')
@@ -75,7 +77,6 @@ for MARKFILE in "$OUTDIR"/markers/*.dat; do
 done
 
 # join them as the coancestry-fitness file
-# TODO: rewrite this using database so it works with larger data
 if [ "$VERBOSE" -gt 0 ]; then echo "<< calculating coa and fit >>"; fi
 COMMAND="python coafitcsv.py"
 OPTIONS=""

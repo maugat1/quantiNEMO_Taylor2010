@@ -11,5 +11,9 @@ Roughly, the major organization of this project is as such:
     /pres/          My presentations of the project 
 
 TODO:
-    - Fix colonization code
-    - Allow extinction to use temporal parameters
+    - test colonization code
+    - allow different colonization models when colonization is different than
+        migration (only try to colonize extinct patches or survival prob for
+        colonizers going to extant patch)
+    - change patch extinction (and modify colonization stuff above) to allow
+        group selection
